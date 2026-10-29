@@ -7,3 +7,11 @@ __pycache__/
 *.pyc
 *.log
 .env
+.env.*
+!.env.example
+*.dpapi
+*.sqlite3*
+*.onnx
+*.safetensors
+datasets/
+models/

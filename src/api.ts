@@ -92,7 +92,7 @@ export type Job = {
   state: string;
   dataset_id: string;
   counts: Record<string, number>;
-  config: { preset: Preset };
+  config: { preset: Preset; dsh?: DshConfig };
 };
 export type Ui = {
   presetDrafts?: Record<string, Preset>;

@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, math
+import json, math, re
 from .responses import annotation_only
 
 FAITHFUL = '''Describe only visible facts in the supplied original image. Preserve character count, pose, clothing, expression, perspective, composition, occlusion and distinct features per character. WD14 candidates are fallible image-level hints, never spatial detections. Resolve identity against visible evidence and supplied references, and do not transfer traits across people. If identity is uncertain describe appearance rather than inventing a name. Do not add artistic slogans, quality tokens, unseen lore, decorations or actions. Preserve visible text verbatim unless the user's guidance explicitly requests translation; never invent unreadable words. Avoid repetitive synonyms. Produce useful training annotations, not a newly redesigned scene.'''
@@ -14,7 +14,7 @@ BUILTINS = [
 def build_task(preset, row, raw, references='', extra=''):
     fmt = preset['format']
     contract = {
-      'caption':'Return only the finished English training caption as plain text. No JSON wrapper, Markdown, preface, notes, process explanation or promises. If the image is unavailable, return {"error":"image unavailable"} instead of guessing.',
+      'caption':'Return only the finished English training caption as plain text, describing the visible subjects, actions and spatial relationships in connected natural language. Convert supported WD14 hints into prose; a comma-separated or line-separated tag list is not a caption. This output format takes priority over any auxiliary Skill format. No JSON wrapper, Markdown, preface, notes, process explanation or promises. If the image is unavailable, return {"error":"image unavailable"} instead of guessing.',
       'tags':'Return only lowercase Danbooru tags separated by commas. Do not invent unsupported tags.',
       'hybrid':'Return one JSON object with keys tags (array of strings) and caption (English string). No Markdown.',
       'moss':f'''Return one strict JSON pixel draft, no Markdown. Schema: {{"width":{row['width']},"height":{row['height']},"bbox_coord_space":"abs","bbox_format":"xyxy","summary":{{"caption":"English scene description","canvas":"single or multi_panel"}},"items":[{{"label":"character or object or text","caption":"English local description","bbox":[left,top,right,bottom]}}]}}. Every bbox is in absolute source pixels inside the supplied canvas. Every visible character has its own item. A text item additionally requires text with the actual visible words (or requested translation), with its bubble position and speaker identified in caption. Describe each comic panel separately; do not merge different panels' actions. Do not compute centralized coordinates; the application compiler does that.'''
@@ -34,19 +34,34 @@ def parse_json(text):
         lines=text.splitlines(); text='\n'.join(lines[1:-1]) if lines[-1].strip()=='```' else text
     return json.loads(text)
 
+def caption_text(text):
+    """Reject recognizable tag lists, without imposing a prose length quota."""
+    text=annotation_only(text)
+    fragments=[re.sub(r'^\s*(?:[-*•]\s*|tags?\s*:\s*)','',v,flags=re.I).strip() for v in re.split(r'[,，;\n]+',text)]
+    fragments=[v for v in fragments if v]
+    hard_tag=r'(?:\d+(?:girls?|boys?|others?)|solo|masterpiece|best_quality|rating:\w+|[a-z0-9]+(?:_[a-z0-9]+)+)'
+    grammatical=r'\b(?:a|an|the|one|two|three|four|five|six|seven|eight|nine|ten|she|he|they|it|her|his|their|of|wears?|wearing|holds?|holding|stands?|standing|sits?|sitting|leans?|leaning|is|are|has|have)\b'
+    # Commas are valid prose punctuation; only short, consistently tag-like
+    # fragments with no sentence structure qualify. Normal captions may be short.
+    list_like=len(fragments)>1 and all(len(v.split())<=5 and not re.search(grammatical,v,re.I) and not re.search(r'[.!?。！？]',v) for v in fragments)
+    explicit_tags=len(fragments)>1 and any(re.fullmatch(hard_tag,v,re.I) for v in fragments) and all(len(v.split())<=5 and not re.search(r'[.!?。！？]',v) for v in fragments) and not re.match(r'(?:a|an|the|one|two|three|four|five|she|he|they|it)\b',fragments[0],re.I)
+    if re.fullmatch(hard_tag,text.strip(),re.I) or list_like or explicit_tags:
+        raise ValueError('自然语言输出实际为标签列表；未保存，请调整指导词或改选标签预设')
+    return text
+
 def compile_output(text, fmt, width, height):
     text=annotation_only(text)
     if fmt in ('caption','tags'):
         if fmt=='caption':
-            if not text.startswith(('{','[','```')):return text
+            if not text.startswith(('{','[','```')):return caption_text(text)
             value=parse_json(text)
             if not isinstance(value,dict) or not isinstance(value.get('caption'),str) or not value['caption'].strip():raise ValueError('模型未返回可用的看图描述')
-            return value['caption'].strip()
+            return caption_text(value['caption'])
         return text.removeprefix('```').removesuffix('```').strip()
     value=parse_json(text)
     if fmt=='hybrid':
         if not isinstance(value.get('tags'),list) or not all(isinstance(t,str) for t in value['tags']) or not isinstance(value.get('caption'),str) or not value['caption'].strip(): raise ValueError('标签＋描述应包含 tags 数组与 caption')
-        return ', '.join(dict.fromkeys(value['tags']))+'\n\n'+value['caption'].strip()
+        return ', '.join(dict.fromkeys(value['tags']))+'\n\n'+caption_text(value['caption'])
     if not isinstance(value,dict) or value.get('bbox_coord_space')!='abs' or value.get('bbox_format')!='xyxy': raise ValueError('MOSS 需要 abs/xyxy 像素草稿')
     if (value.get('width'),value.get('height'))!=(width,height): raise ValueError('MOSS 画布尺寸必须匹配原图')
     if not isinstance(value.get('summary'),dict) or not isinstance(value['summary'].get('caption'),str) or not isinstance(value.get('items'),list) or not value['items']: raise ValueError('MOSS 缺少场景或对象')

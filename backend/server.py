@@ -97,7 +97,7 @@ class Server:
     def bootstrap(self):
         return {'datasets':self.store.datasets(),'presets':self.presets(),'settings':self.settings(),
             'models':models(self.settings()['model_dirs']),'skills':self.skills(),'jobs':self.jobs.snapshot(),
-            'ui':self.store.get_setting('ui',{}),'data_root':str(self.store.root),'agent':self.agent.info(),'version':'0.1.2'}
+            'ui':self.store.get_setting('ui',{}),'data_root':str(self.store.root),'agent':self.agent.info(),'version':'0.1.3'}
 
     async def dispatch(self,method,p):
         if method=='bootstrap':return self.bootstrap()

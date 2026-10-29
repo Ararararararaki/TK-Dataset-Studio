@@ -80,6 +80,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
+  const [channelBusy,setChannelBusy]=useState(false);
   const [stage, setStage] = useState("");
   const [ticks, setTicks] = useState<Record<string, number>>({});
   const [preview, setPreview] = useState<ImageRow | null>(null);
@@ -344,6 +345,8 @@ export default function App() {
   });
   const modelGroups = catalog?.capabilities.models.groups || [];
   const route = boot?.settings.dsh;
+  const selectedChannelLabel=preset?.pipeline==="wd14"?"WD14 本地":route?.transport==="native"?"DSH Agent":"API 直连";
+  const channelLabel=job?.state==="running"&&job.config?(job.config.preset.pipeline==="wd14"?"WD14 本地":job.config.dsh?.transport==="api"?"API 直连":"DSH Agent"):selectedChannelLabel;
   const defaultRoute = catalog?.capabilities.models.default;
   const effectiveProvider = route?.provider || defaultRoute?.provider;
   const effectiveModel = route?.model || defaultRoute?.model;
@@ -384,6 +387,16 @@ export default function App() {
   function selectPreset(id: string) {
     const p = boot?.presets.find((p) => p.id === id);
     if (p) setPreset({ ...(presetDrafts.current[id] || p) });
+  }
+  async function switchChannel(transport: "api"|"native") {
+    if(!boot||channelBusy||transport===(route?.transport||"api"))return;
+    setChannelBusy(true);setCatalog(null);
+    try{
+      const saved=await api<Boot>("settings.save",{...boot.settings,dsh:{...boot.settings.dsh,transport,provider:"",model:""}});
+      setBoot(saved);
+      setNotice(`已选择 ${transport==="api"?"API 直连":"DSH Agent"}，用于下一次打标`);
+      try{setCatalog(await api<Catalog>("dsh.catalog"));}catch(e){report(e);}
+    }catch(e){report(e);}finally{setChannelBusy(false);}
   }
   function toggleSelect(id: string, range = false) {
     setSelection((prev) => {
@@ -676,6 +689,7 @@ export default function App() {
                 </p>
               </div>
               <div className="header-actions">
+                <span className="channel-status" data-testid="execution-channel-status" title="运行中显示本批次通道；切换连接只影响下一批">{job?.state==="running"?"运行中":"下次"} · {channelLabel}</span>
                 {running ? (
                   <>
                     <button onClick={() => void action("jobs.pause")}>
@@ -1357,13 +1371,21 @@ export default function App() {
                   </section>
                   <section>
                     <div className="section-title">
-                      <label className="section-label">DSH 看图模型</label>
+                      <label className="section-label">看图模型与通道</label>
                       <button
                         className="text-button"
                         onClick={() => setSettingsOpen(true)}
                       >
                         <Link size={12} />
                         连接
+                      </button>
+                    </div>
+                    <div className="execution-channels" role="group" aria-label="打标通道">
+                      <button aria-label="API 直连" aria-pressed={route?.transport!=="native"} disabled={channelBusy} onClick={()=>void switchChannel("api")}>
+                        <strong>API 直连</strong><small>直接传图 · 无 DSH 会话</small>
+                      </button>
+                      <button aria-label="DSH Agent" aria-pressed={route?.transport==="native"} disabled={channelBusy} onClick={()=>void switchChannel("native")}>
+                        <strong>DSH Agent</strong><small>原生工具与插件 · 创建会话</small>
                       </button>
                     </div>
                     <select
@@ -1387,7 +1409,7 @@ export default function App() {
                       }}
                     >
                       <option value="">
-                        跟随 DSH 当前模型
+                        {route?.transport==="native"?"跟随 DSH 当前模型":"使用连接默认模型"}
                         {defaultRoute ? " · " + defaultRoute.model : ""}
                       </option>
                       {modelGroups.map((g) => (
@@ -1403,8 +1425,8 @@ export default function App() {
                     <div className={`dsh-status ${catalog ? "ready" : ""}`}>
                       <span />
                       {catalog
-                        ? (route?.transport==="native"?"完整 Agent · 每张图片创建对话":"API 直接传图 · 不创建 DSH 对话")
-                        : "未连接，点击“连接”设置"}
+                        ? `${selectedChannelLabel} · ${effectiveModel||"模型待选择"} · 已连接`
+                        : `${selectedChannelLabel} · 未连接，点击“连接”设置`}
                     </div>
                     {efforts.length > 0 && (
                       <label>
@@ -1431,7 +1453,7 @@ export default function App() {
                       </label>
                     )}
                     <details className="advanced">
-                      <summary>{route?.transport==="native"?"Agent 预设与 Skill":"辅助 Skill 指导词"}</summary>
+                      <summary>{route?.transport==="native"?"Agent 预设与 Skill":"辅助 Skill 指导词"} · 已选 {boot.settings.skill_ids.length}</summary>
                       {route?.transport==="native" && <label>
                         DSH Agent
                         <select

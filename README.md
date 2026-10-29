@@ -2,6 +2,10 @@
 
 面向图片训练集的 Windows 桌面打标工作区。图片、最终标注和 WD14 原始标签放在同一张卡片中；左边管理数据集，右边调整预设、模型与指导词。独立运行，不需要启动 ComfyUI。
 
+**[下载 Windows x64 便携版](https://github.com/Ararararararaki/TK-Dataset-Studio/releases/latest)** · [首次使用指南](docs/QUICKSTART.zh-CN.md) · [更新记录](CHANGELOG.md)
+
+普通用户下载 Release 中的 `TK-Dataset-Studio-版本号-Windows-x64.exe` 即可，不需要安装 Python、Node.js 或 ComfyUI。源码页面的「Download ZIP」不是可直接运行的桌面包。
+
 ## 开始使用
 
 1. 打开 `TK Dataset Studio.exe`。本机桌面快捷方式指向已构建的应用目录；整个 `win-unpacked` 目录需要保留。也可使用单文件便携发行包。
@@ -10,6 +14,8 @@
 4. 结果自动写到原图旁的同名 UTF-8 `.txt`。直接编辑文本也会自动保存。点击图片可放大；图片可拖出到其他支持文件拖放的应用。
 
 首次使用需要选择 WD14 模型，或配置仅 LLM 看图。安装包不附带模型权重、用户图片、账号和 API Key。
+
+主界面「看图模型与通道」直接切换 **API 直连 / DSH Agent**，当前通道显示在开始按钮旁。仅 WD14 时显示「WD14 本地」。辅助 Skill 支持多选，名称与选择数量可直接查看。自然语言预设收到明显的纯标签列表时会报告格式不符，不当作成功标注保存；这不等于自动保证语义准确率。
 
 ## 浏览与选择
 
