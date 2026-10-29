@@ -1,0 +1,9 @@
+node_modules/
+dist/
+release/
+runtime/
+.scratch/
+__pycache__/
+*.pyc
+*.log
+.env

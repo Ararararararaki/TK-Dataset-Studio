@@ -1,0 +1,33 @@
+const {_electron}=require('playwright-core'),fs=require('node:fs'),path=require('node:path'),net=require('node:net'),assert=require('node:assert/strict');
+const {execFileSync}=require('node:child_process');
+(async()=>{
+ const app=await _electron.launch({executablePath:path.resolve('release/win-unpacked/TK Dataset Studio.exe'),env:{...process.env,TKDS_DATA:path.resolve('.scratch/packaged-state')},timeout:60000});
+ const p=await app.firstWindow(),errors=[];p.on('pageerror',e=>errors.push(e.message));
+ await p.locator('.image-entry').first().waitFor();
+ const call=(method,params={})=>p.evaluate(({method,params})=>window.studio.invoke(method,params),{method,params});
+ const boot=await call('bootstrap');assert.ok(boot.agent.mcp.command.includes('win-unpacked'),'Must use the packaged runtime');
+ assert.equal(boot.datasets[0].count,2);assert.equal(boot.models.length>0,true);
+ await call('settings.save',{...boot.settings,overwrite:true});await p.reload();await p.locator('.image-entry').first().waitFor();
+ const start=Date.now();await p.getByRole('button',{name:'开始打标',exact:true}).click();
+ let job;for(let i=0;i<90;i++){await p.waitForTimeout(500);job=(await call('jobs.list'))[0];if(job&&job.state!=='running')break;}
+ assert.equal(job.state,'completed');assert.equal(job.counts.done,2);
+ const elapsed=(Date.now()-start)/1000;
+ await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setBounds({width:920,height:650}));await p.waitForTimeout(400);
+ const overflow=await p.evaluate(()=>({width:innerWidth,body:document.body.scrollWidth,workspace:document.querySelector('.workspace').clientWidth,toolbar:document.querySelector('.browser-toolbar').scrollWidth,toolbarWidth:document.querySelector('.browser-toolbar').clientWidth}));
+ await p.screenshot({path:'.scratch/screenshots/09-small-window.png'});
+ await p.getByRole('button',{name:'设置与模型',exact:true}).click();await p.getByRole('button',{name:'Agent 接管',exact:true}).click();await p.screenshot({path:'.scratch/screenshots/10-agent-settings.png'});await p.getByRole('button',{name:'关闭设置',exact:true}).click();
+ await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setBounds({width:1500,height:960}));await p.waitForTimeout(300);await p.screenshot({path:'.scratch/screenshots/11-packaged-desktop.png'});
+ assert.deepEqual(errors,[]);assert.ok(overflow.body<=overflow.width+1);assert.ok(overflow.toolbar<=overflow.toolbarWidth+1,'Toolbar should not overflow');
+ await call('settings.save',{...boot.settings,agent_access:'write'});
+ execFileSync(path.resolve('runtime/python.exe'),['scripts/mcp-e2e.py',boot.data_root,boot.agent.mcp.command],{cwd:process.cwd(),env:{...process.env,PYTHONUTF8:'1'},encoding:'utf8',timeout:30000,stdio:['ignore','pipe','pipe']});
+ await call('settings.save',{...boot.settings,agent_access:'read'});await p.waitForTimeout(300);
+ const imageRows=await call('images.list',{dataset_id:boot.datasets[0].id}),detail=await call('images.get',{id:imageRows[0].id});
+ const expected=detail.text+'\nPackaged close flush QA.';
+ await p.getByRole('textbox',{name:detail.relative+' 打标文本',exact:true}).fill(expected);
+ const closed=app.waitForEvent('close',{timeout:12000});await p.evaluate(()=>window.studio.window('close'));await closed;
+ assert.equal(fs.readFileSync(detail.path.replace(/\.[^.\\/]+$/,'.txt'),'utf8'),expected);
+ const endpoint=JSON.parse(fs.readFileSync(path.join(boot.data_root,'agent-endpoint.json'),'utf8'));assert.equal(endpoint.status,'stopped');
+ assert.throws(()=>process.kill(endpoint.pid,0),'Backend process must exit');
+ const port=Number(new URL(boot.agent.url).port);assert.ok(await new Promise(r=>{const s=net.createServer();s.once('error',()=>r(false));s.listen(port,'127.0.0.1',()=>s.close(()=>r(true)))}));
+ const result={passed:true,packaged_python:boot.agent.mcp.command,images:2,wd14_cpu_elapsed_s:elapsed,small_window:overflow,packaged_mcp:true,close_flush:true,backend_exited:true,agent_port_released:true,errors};fs.writeFileSync('.scratch/evidence/packaged.json',JSON.stringify(result,null,2));console.log(result);
+})().catch(e=>{console.error(e);process.exit(1)});
