@@ -53,12 +53,13 @@ class Jobs:
             following=not selected.get('provider') and not selected.get('model')
             for key in ('provider','model'):
                 if not selected.get(key) and default.get(key):selected[key]=default[key]
-            if following and not selected.get('reasoningEffort') and default.get('reasoningEffort'):selected['reasoningEffort']=default['reasoningEffort']
+            native_mode=selected.get('transport')!='api'
+            if native_mode and following and not selected.get('reasoningEffort') and default.get('reasoningEffort'):selected['reasoningEffort']=default['reasoningEffort']
             groups=catalog.get('capabilities',{}).get('models',{}).get('groups',[])
             if groups:
                 target=next((m for g in groups if g['id']==selected.get('provider') for m in g['models'] if m['id']==selected.get('model')),None)
                 if not target:raise ValueError('所选 DSH 模型不可用，请刷新模型列表')
-                if selected.get('reasoningEffort') and selected['reasoningEffort'] not in {v['id'] for v in target.get('reasoning',{}).get('efforts',[])}:raise ValueError('所选模型不支持此思考强度，请重新选择')
+                if native_mode and selected.get('reasoningEffort') and selected['reasoningEffort'] not in {v['id'] for v in target.get('reasoning',{}).get('efforts',[])}:raise ValueError('所选模型不支持此思考强度，请重新选择')
             config={**config,'dsh':selected}
         where='dataset_id=?';args=[dataset_id]
         if only_failed:where+=" AND status='failed'"
@@ -75,6 +76,7 @@ class Jobs:
         if self.task and not self.task.done(): raise ValueError('已有任务正在运行')
         rows=self.store.query('SELECT * FROM jobs WHERE id=?',(jid,))
         if not rows:raise ValueError('任务不存在')
+        if 'transport' not in json.loads(rows[0]['config']).get('dsh',{}):raise ValueError('这是旧版 Agent 批次。请用当前连接点“重试失败”或重新选择图片打标；旧记录保留，不自动继续旧会话')
         self.store.execute("UPDATE job_items SET status='pending' WHERE job_id=? AND status IN ('failed','cancelled','running')",(jid,))
         self.store.execute("UPDATE jobs SET state='running' WHERE id=?",(jid,))
         self.stop.clear();self.pausing=False;self.task=asyncio.create_task(self.run(jid));return {'id':jid}
@@ -92,6 +94,7 @@ class Jobs:
 
     async def run(self,jid):
         job=self.store.query('SELECT * FROM jobs WHERE id=?',(jid,))[0];config=json.loads(job['config']);preset=config['preset']
+        consecutive=0
         try:
             for item in self.store.query("SELECT * FROM job_items WHERE job_id=? AND status='pending'",(jid,)):
                 if self.pausing or self.stop.is_set():break
@@ -104,14 +107,18 @@ class Jobs:
                 try:
                     await self.process(jid,item,row,config,preset)
                     self.store.execute("UPDATE job_items SET status='done',stage='completed',run_id='' WHERE job_id=? AND image_id=?",(jid,iid))
+                    consecutive=0
                 except asyncio.CancelledError:
                     self.store.execute("UPDATE job_items SET status='cancelled' WHERE job_id=? AND image_id=?",(jid,iid))
                     self.store.execute("UPDATE images SET status='failed',error='任务已中断，可重试' WHERE id=?",(iid,));break
                 except Exception as e:
+                    consecutive+=1
                     self.store.execute("UPDATE images SET status='failed',error=? WHERE id=?",(str(e)[:2000],iid))
                     self.store.execute("UPDATE job_items SET status='failed',error=? WHERE job_id=? AND image_id=?",(str(e)[:2000],jid,iid))
                     if isinstance(e,NativeFailure) and any(word in str(e).lower() for word in ('401','403','authentication','credential','未连接')):self.pausing=True
-                self.notify({'kind':'image','id':iid,'stage':'完成','job_id':jid})
+                    if consecutive>=3:
+                        self.pausing=True;self.notify({'kind':'job','id':jid,'message':'连续 3 张失败，已暂停批次；请检查错误后用当前设置重试，剩余图片不会继续请求'})
+                self.notify({'kind':'image','id':iid,'stage':'已保存' if self.store.image(iid)['status']=='done' else '失败，未保存','job_id':jid})
             state='cancelled' if self.stop.is_set() else 'paused' if self.pausing else 'completed'
             self.store.execute('UPDATE jobs SET state=? WHERE id=?',(state,jid))
         finally:
@@ -138,14 +145,17 @@ class Jobs:
                 resume=item['run_id'] if resume_stage==stage else ''
                 base_attempt=item.get('attempt',0)
                 operation_attempt=base_attempt
-                for attempt in range(3):
+                # Stateless generation can already be billed; never silently
+                # resubmit it. Native retries reconcile the same stored run.
+                attempts=3 if config.get('dsh',{}).get('transport')=='native' else 1
+                for attempt in range(attempts):
                     if self.stop.is_set():raise asyncio.CancelledError()
                     async def progress(run):
-                        self.store.execute('UPDATE job_items SET run_id=?,stage=?,attempt=? WHERE job_id=? AND image_id=?',(run['runId'],stage,base_attempt+attempt+1,jid,iid))
-                        self.store.execute('UPDATE images SET native=? WHERE id=?',(encoded({k:run.get(k) for k in ('runId','sessionId','webUrl','status','model','provider')}),iid))
-                        self.notify({'kind':'image','id':iid,'stage':'DSH 看图扩写' if stage=='draft' else 'DSH 独立复核'})
+                        self.store.execute('UPDATE job_items SET run_id=?,stage=?,attempt=? WHERE job_id=? AND image_id=?',(run.get('runId') or '',stage,base_attempt+attempt+1,jid,iid))
+                        self.store.execute('UPDATE images SET native=? WHERE id=?',(encoded({k:run.get(k) for k in ('runId','requestId','sessionId','webUrl','status','model','provider','transport')}),iid))
+                        self.notify({'kind':'image','id':iid,'stage':'看图打标中' if stage=='draft' else '可选复核中'})
                     try:
-                        text,meta=await self.native.annotate(row,prompt,{**config.get('dsh',{}),'detail_pass':stage=='review'},f'tkds:{jid}:{iid}:{stage}:{operation_attempt}',progress,self.stop,resume)
+                        text,meta=await self.native.annotate(row,prompt,{**config.get('dsh',{}),'proxy':config.get('proxy'),'detail_pass':stage=='review'},f'tkds:{jid}:{iid}:{stage}:{operation_attempt}',progress,self.stop,resume)
                         self.store.execute('UPDATE images SET native=? WHERE id=?',(encoded(meta),iid))
                         self.store.execute("UPDATE job_items SET draft=?,run_id='' WHERE job_id=? AND image_id=?",(text,jid,iid));resume='';break
                     except NativeAttention:raise
@@ -156,12 +166,13 @@ class Jobs:
                         else:
                             resume='';self.store.execute("UPDATE job_items SET run_id='' WHERE job_id=? AND image_id=?",(jid,iid))
                             if known:operation_attempt+=1
-                        if attempt==2 or not e.retryable or any(w in str(e).lower() for w in ('refused','permission','拒绝','401','403')):raise
+                        if attempt==attempts-1 or not e.retryable or any(w in str(e).lower() for w in ('refused','permission','拒绝','401','403')):raise
                         self.notify({'kind':'image','id':iid,'stage':f'连接重试 {attempt+1}/2'})
                         await asyncio.sleep(2**attempt)
             try:text=compile_output(text,preset['format'],row['width'],row['height'])
             except ValueError as error:
-                # Exactly one schema repair, with image and contract. No extra content restrictions.
+                # No hidden, separately billed format repair in the default flow.
+                if not config.get('dsh',{}).get('repair_format',False):raise
                 fix=task+'\nCorrect only the output format error: '+str(error)+'\nPrevious draft:\n'+text
                 async def fix_progress(run):
                     self.store.execute('UPDATE images SET native=? WHERE id=?',(encoded({k:run.get(k) for k in ('runId','sessionId','webUrl','status')}),iid))

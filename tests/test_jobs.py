@@ -36,7 +36,8 @@ class JobTests(unittest.IsolatedAsyncioTestCase):
         r=await self.jobs.start(self.did,self.config());await self.jobs.task
         self.assertEqual(r['count'],1);self.assertEqual((self.folder/'one.txt').read_text(),'keep')
     async def test_two_pass_actual_review_contract(self):
-        await self.jobs.start(self.did,self.config(1));await self.jobs.task
+        cfg=self.config(1);cfg['preset']['review']=True
+        await self.jobs.start(self.did,cfg);await self.jobs.task
         self.assertEqual(self.native.calls,4);self.assertTrue(all(r['status']=='done' for r in self.store.list_images(self.did)))
     async def test_failed_llm_no_fallback_txt(self):
         self.native.fail=True

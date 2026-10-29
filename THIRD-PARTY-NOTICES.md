@@ -40,4 +40,6 @@ Source: https://github.com/Ararararararaki/comfyui-anima-toolkit
 
 WD14 model weights are not bundled and retain their respective model-card licenses. TagGUI was a behavior reference only; no GPL source was copied. The MOSS pixel-to-centered coordinate adapter is an independent implementation of the published data contract; no unlicensed compiler or GPL editor is bundled.
 
+PyYAML 6.0.3 (MIT, https://github.com/yaml/pyyaml) is used for read-only static connection configuration. Its license is retained with the bundled distribution. Unknown and JavaScript YAML tags are not executed.
+
 Other package licenses are retained in distributed dependencies. Python/NumPy/Pillow/ONNX Runtime/MCP and Electron/Chromium notices are included by their distributions.

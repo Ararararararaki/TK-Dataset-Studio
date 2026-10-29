@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 from PIL import Image, ImageOps
+from .responses import annotation_only, check_response
+from .images import file_block, jpeg_block
 
 class NativeFailure(ValueError):
     def __init__(self,message,retryable=True):
@@ -14,15 +16,20 @@ FINAL_BEGIN='<<<TK_FINAL_PROMPT>>>'
 FINAL_END='<<<TK_FINAL_PROMPT_END>>>'
 
 def final_text(value):
-    """Parse the Toolkit-compatible final-message envelope, never process prose."""
-    if not isinstance(value,str):raise NativeFailure('DSH 没有返回最终稿',retryable=False)
+    """Accept a real final annotation, with or without the legacy envelope."""
+    try:check_response(value)
+    except ValueError as e:raise NativeFailure(str(e),False) from None
     tokens=list(re.finditer(r'<<<TK_FINAL_PROMPT(?:_END)?>>>',value))
+    if not tokens:
+        try:return annotation_only(value)
+        except ValueError as e:raise NativeFailure(str(e),False) from None
     if [token.group() for token in tokens]!=[FINAL_BEGIN,FINAL_END]:
         raise NativeFailure('DSH 最终稿标记不完整，本次不会写入标注',retryable=False)
     annotation=value[tokens[0].end():tokens[1].start()].strip()
     if not annotation or value[tokens[1].end():].strip():
         raise NativeFailure('DSH 最终稿为空或含额外说明，本次不会写入标注',retryable=False)
-    return annotation
+    try:return annotation_only(annotation)
+    except ValueError as e:raise NativeFailure(str(e),False) from None
 
 def local_url(value):
     p=urlsplit(str(value))
@@ -128,10 +135,7 @@ class Native:
 
     @staticmethod
     def attachment(path):
-        with Image.open(path) as im:
-            image=ImageOps.exif_transpose(im).convert('RGBA');image.thumbnail((2048,2048))
-            bg=Image.new('RGBA',image.size,'white');bg.alpha_composite(image);out=io.BytesIO();bg.convert('RGB').save(out,'JPEG',quality=94)
-        return {'type':'image','data':base64.b64encode(out.getvalue()).decode(),'mediaType':'image/jpeg','name':Path(path).name}
+        return {**file_block(path,max_side=1600,max_bytes=180000),'name':Path(path).name}
 
     @staticmethod
     def detail_attachments(path):
@@ -140,9 +144,8 @@ class Native:
             boxes=[(0,0,w,int(h*.6)),(0,int(h*.4),w,h)] if h>=w else [(0,0,int(w*.6),h),(int(w*.4),0,w,h)]
             output=[]
             for box in boxes:
-                crop=image.crop(box);crop.thumbnail((2048,2048));bg=Image.new('RGBA',crop.size,'white');bg.alpha_composite(crop);out=io.BytesIO();bg.convert('RGB').save(out,'JPEG',quality=94)
                 output.extend([{'type':'text','text':f'Detail crop of SAME original image, source pixel xyxy={list(box)}. Overlap repeats existing people, never count them twice. All output boxes still use the full original canvas.'},
-                    {'type':'image','data':base64.b64encode(out.getvalue()).decode(),'mediaType':'image/jpeg','name':f'detail-{box}.jpg'}])
+                    {**jpeg_block(image.crop(box),max_side=1600,max_bytes=180000),'name':f'detail-{box}.jpg'}])
         return output
 
     async def annotate(self, row, task, config, key, progress, stop, resume_run=''):

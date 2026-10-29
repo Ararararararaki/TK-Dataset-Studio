@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { api, type Boot, type Catalog, type Settings as Config } from "../api";
+import ApiConnectionSettings from "./ApiConnectionSettings";
 export default function Settings({
   boot,
   catalog,
@@ -31,7 +32,8 @@ export default function Settings({
   const [tab, setTab] = useState("connection");
   async function persist(next: Config) {
     setConfig(next);
-    onBoot(await api<Boot>("settings.save", next));
+    const saved=await api<Boot>("settings.save", next);
+    setConfig(saved.settings);onBoot(saved);
   }
   async function probe(start = false) {
     setBusy(start ? "start" : "probe");
@@ -111,12 +113,20 @@ export default function Settings({
               <>
                 <h3>
                   <Link size={17} />
-                  DSH 原生连接
+                  打标连接
                 </h3>
                 <p className="help">
-                  复用 DSH
-                  的原生模型、会话和插件配置。图片作为视觉附件发送，逐图独立执行。
+                  默认直接传图，一次请求后保存标注。完整 Agent 仅在主动选择时启用。
                 </p>
+                <label>执行方式
+                  <select aria-label="打标执行方式" value={config.dsh.transport || "api"} onChange={e=>void persist({...config,dsh:{...config.dsh,transport:e.target.value as "api"|"native",provider:"",model:""}}).then(()=>probe()).catch(onError)}>
+                    <option value="api">直接 API · 不创建 DSH 对话</option>
+                    <option value="native">完整 DSH Agent · 会创建独立对话</option>
+                  </select>
+                </label>
+                {config.dsh.transport!=="native" && <ApiConnectionSettings config={config} persist={persist} onError={onError}/>}
+                {config.dsh.transport==="native" && <>
+                <p className="help">此模式通过 Relay 调用完整 Agent，每张图片会创建独立会话，并保留 DSH 的原生插件和权限处理。</p>
                 <label>
                   Profile
                   <input
@@ -163,6 +173,7 @@ export default function Settings({
                     </button>
                   </div>
                 </label>
+                </>}
                 <div className="button-row">
                   <button
                     className="primary"
@@ -176,17 +187,17 @@ export default function Settings({
                     )}
                     检测连接
                   </button>
-                  <button disabled={!!busy} onClick={() => void probe(true)}>
+                  {config.dsh.transport==="native" && <button disabled={!!busy} onClick={() => void probe(true)}>
                     <Play size={14} />
                     一键启动 DSH
-                  </button>
+                  </button>}
                 </div>
                 <div className={`connection-result ${catalog ? "ready" : ""}`}>
                   {catalog ? (
                     <>
                       <CheckCircle2 size={17} />
                       <div>
-                        <strong>已连接原生 DSH</strong>
+                        <strong>{catalog.transport==="api"?"API 连接就绪 · 无 DSH 会话":"原生 Agent 连接就绪"}</strong>
                         <p>{catalog.host_url}</p>
                       </div>
                     </>
@@ -194,7 +205,7 @@ export default function Settings({
                     <p>检测后自动读取当前可用模型，无需在多个地方重复配置。</p>
                   )}
                 </div>
-                {catalog && (
+                {catalog && config.dsh.transport==="native" && (
                   <>
                     <label>
                       DSH 工作区
@@ -247,7 +258,7 @@ export default function Settings({
                   单次运行等待上限（秒）
                   <input
                     type="number"
-                    min={60}
+                    min={15}
                     max={3600}
                     value={config.dsh.timeout}
                     onChange={(e) =>

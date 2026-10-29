@@ -30,7 +30,7 @@
 | 只读（默认） | 状态、图片、标注、历史和审计 |
 | 允许操作与修改 | 上述能力，以及导入、打标、编辑、预设和任务控制 |
 
-`studio_assistant` 会调用 DSH，可能产生模型用量，因此也需要操作权限。
+`studio_assistant` 使用当前 API / 原生 DSH 通道，可能产生模型用量，因此也需要操作权限。
 
 ## MCP 工具
 
@@ -45,7 +45,7 @@
 | `studio_edit` | `image_id`, `text`, `revision`, 可选 `format` |
 | `studio_control` | `action`: pause/cancel/resume；恢复时提供 `job_id` |
 | `studio_save_preset` | `name`, `guidance`, `format`, `pipeline`, `review`, 可选 `preset_id` |
-| `studio_assistant` | `image_id`, `instruction`；咨询原生 DSH，不自动改文件 |
+| `studio_assistant` | `image_id`, `instruction`；使用当前 LLM 通道咨询，不自动改文件 |
 | `studio_audit` | 最近 100 条 Agent 操作记录 |
 
 建议流程：读取状态 → 查看图片和标注 → 选定预设启动 → 轮询批次 → 核对原图 → 用刚读取的 revision 保存修改。冲突时重新读取并判断，不覆盖用户刚做的编辑。`overwrite` 默认为 false；设为 true 时仍走备份与版本保护。

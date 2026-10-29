@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.2 · 2026-10-29
+
+- Default to direct image API tagging using a read-only DSH static connection or a manually configured OpenAI-compatible endpoint. No DSH conversations or task files are created by this mode. Keep optional native DSH Agent execution and explicitly describe its conversation/plugin behavior.
+- Use one draft request per image by default; independent review is optional. Do not resubmit API failures automatically; pause after three consecutive failed images. Preserve paused legacy batches without resuming their old sessions.
+- Save completed final content before incrementing the image count. Accept plain captions and legacy caption JSON; distinguish model refusals, process prose, missing final content and token truncation. None becomes a TXT annotation.
+- Bound native image attachment payloads to avoid Relay HTTP 413. Keep the larger image budget for API requests. Do not change source images.
+- Resolve DSH credentials using the documented managed-store precedence; encrypt manually entered keys with Windows DPAPI. Do not expose keys in job snapshots, renderer settings or gateway errors.
+- Prevent a retained native reasoning level from blocking API model selection. Preserve native settings for switching back.
+- Verified one real WD14 + WorkBuddy image API job through TXT save; isolated desktop tests verify two images/two API requests/two saved annotations and process/port release. Detailed results and limits are in docs/VERIFICATION.md.
+
 ## 0.1.1 · 2026-10-29
 
 - Drag from blank browser space or card edges to marquee-select in both list and grid. Edge holding auto-scrolls across virtual rows; Shift adds, Ctrl toggles, Alt subtracts, and Esc restores the selection from before the gesture.

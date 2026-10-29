@@ -48,6 +48,16 @@ export type ImageDetail = ImageRow & {
   };
 };
 export type DshConfig = {
+  transport: "api" | "native";
+  api_source?: "dsh" | "manual";
+  api_base?: string;
+  api_model?: string;
+  api_key_saved?: boolean;
+  new_api_key?: string;
+  clear_api_key?: boolean;
+  api_reasoning?: string;
+  max_tokens?: number;
+  repair_format?: boolean;
   workspace?: string;
   descriptor: string;
   profile: string;
@@ -132,6 +142,7 @@ type Model = {
   reasoning?: { efforts: { id: string; label?: string }[] };
 };
 export type Catalog = {
+  transport?: "api" | "native";
   workspaces: { workspaceId: string; path: string; title: string }[];
   connected: boolean;
   host_url: string;

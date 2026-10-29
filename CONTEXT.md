@@ -1,6 +1,6 @@
 # TK Dataset Studio · domain and ownership
 
-Version 0.1.1. An independent Windows desktop for image-training annotations, extracted at the behavior boundary from the Toolkit Agent. No ComfyUI imports, Torch installation, shared Python mutation or existing repository deployment.
+Version 0.1.2. An independent Windows desktop for image-training annotations, extracted at the behavior boundary from the Toolkit Agent. No ComfyUI imports, Torch installation, shared Python mutation or existing repository deployment.
 
 ## Vocabulary
 
@@ -23,7 +23,10 @@ Version 0.1.1. An independent Windows desktop for image-training annotations, ex
 | `src/components/ImageEntry.tsx`, `src/drafts.ts` | Serialized editor saves, durable local draft and revision reconciliation |
 | `backend/server.py` | One coordinator, public dispatch, settings and service ownership |
 | `backend/store.py` | SQLite/WAL, revision checks, sidecars, backups, thumbnail cache |
-| `backend/jobs.py` | Batch snapshot, one worker, native stages, retry/pause/cancel |
+| `backend/jobs.py` | Batch snapshot, one worker, durable save/count, bounded failure, pause/cancel |
+| `backend/connections.py` | Read-only static DSH API configuration, live credential resolution and DPAPI manual keys |
+| `backend/api_transport.py` | Single API/Agent routing owner; stateless image request, final-content SSE, no silent fallback |
+| `backend/images.py`, `backend/responses.py` | Image attachment budgets and shared final-response/refusal classification |
 | `backend/tagger.py` | ONNX + matching CSV preprocessing/inference, isolated in a child process |
 | `backend/native.py` | Relay MCP, real image attachments, exact registered workspace, final extraction |
 | `backend/presets.py` | Task format contracts and deterministic source-pixel Layout compilation |

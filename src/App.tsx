@@ -645,7 +645,7 @@ export default function App() {
               </button>
               <div className="connection-dot">
                 <span className={catalog ? "online" : ""} />
-                {catalog ? "DSH 原生连接就绪" : "DSH 尚未连接"}
+                {catalog ? (catalog.transport==="api"?"API 直接打标就绪":"DSH Agent 就绪") : "打标连接待检测"}
                 <button
                   className="icon-button"
                   title="检测 DSH"
@@ -1237,7 +1237,7 @@ export default function App() {
                         />
                         <span>
                           独立看图复核
-                          <small>再次核对人物、动作与遗漏，质量优先</small>
+                          <small>额外请求一次；增加耗时与用量，默认关闭</small>
                         </span>
                       </label>
                     )}
@@ -1403,7 +1403,7 @@ export default function App() {
                     <div className={`dsh-status ${catalog ? "ready" : ""}`}>
                       <span />
                       {catalog
-                        ? "原生会话 · 图片附件已启用"
+                        ? (route?.transport==="native"?"完整 Agent · 每张图片创建对话":"API 直接传图 · 不创建 DSH 对话")
                         : "未连接，点击“连接”设置"}
                     </div>
                     {efforts.length > 0 && (
@@ -1431,8 +1431,8 @@ export default function App() {
                       </label>
                     )}
                     <details className="advanced">
-                      <summary>原生 Agent 预设与 Skill</summary>
-                      <label>
+                      <summary>{route?.transport==="native"?"Agent 预设与 Skill":"辅助 Skill 指导词"}</summary>
+                      {route?.transport==="native" && <label>
                         DSH Agent
                         <select
                           value={route?.agentPreset || ""}
@@ -1453,7 +1453,7 @@ export default function App() {
                             </option>
                           ))}
                         </select>
-                      </label>
+                      </label>}
                       {boot.skills.map((s) => (
                         <label className="check-field compact" key={s.id}>
                           <input

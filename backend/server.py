@@ -5,31 +5,47 @@ from .store import Store, encoded
 from .tagger import models
 from .presets import BUILTINS
 from .native import Native
+from .connections import Connections
+from .api_transport import AnnotationClient
 from .jobs import Jobs
 from .references import References
 from .agent_api import AgentAPI
 
 DEFAULTS={'model_dirs':[],'wd14':{'model':'','device':'cpu','threshold':.35,'character_threshold':.85,'exclude_tags':''},
- 'dsh':{'profile':'web','descriptor':'','timeout':900},'overwrite':False,'output_warning':12000,'proxy':'http://127.0.0.1:7890','skill_ids':[],
+ 'dsh':{'transport':'api','api_source':'dsh','profile':'web','descriptor':'','timeout':180,'max_tokens':8192,'api_reasoning':'off','api_base':'','api_model':'','repair_format':False},'overwrite':False,'output_warning':12000,'proxy':'http://127.0.0.1:7890','skill_ids':[],
  'lookup_characters':True,'character_snapshot':'','character_update':True,'lookup_missing':True,'agent_access':'read'}
 
 class Server:
     def __init__(self,root):
         self.store=Store(root);self.output_lock=threading.Lock();self.native=Native(root,lambda:self.settings()['dsh'])
+        self.connections=Connections(root,lambda:{**self.settings()['dsh'],'proxy':self.settings()['proxy']})
+        self.llm=AnnotationClient(self.native,self.connections)
         for item in self.store.query("SELECT DISTINCT run_id FROM job_items WHERE run_id<>''"):
             self.native.active[item['run_id']]={'runId':item['run_id'],'status':'unknown'}
         self.references=References(self.store,self.settings,self.notify)
-        self.jobs=Jobs(self.store,self.native,self.notify,self.references);self.stop=asyncio.Event();self.download_lock=asyncio.Lock()
+        self.jobs=Jobs(self.store,self.llm,self.notify,self.references);self.stop=asyncio.Event();self.download_lock=asyncio.Lock()
         self.agent=AgentAPI(self)
         for p in BUILTINS:
             if not self.store.query('SELECT id FROM presets WHERE id=?',(p['id'],)):self.store.execute('INSERT INTO presets VALUES(?,?)',(p['id'],encoded(p)))
+        if not self.store.get_setting('migration_api_v1',False):
+            old={'presets':self.presets(),'ui':self.store.get_setting('ui',{})}
+            backup=self.store.root/'before-api-v1.json'
+            if not backup.exists():backup.write_text(encoded(old),encoding='utf-8')
+            # Built-ins are immutable in the UI; custom copies keep all choices.
+            for p in BUILTINS:self.store.execute('UPDATE presets SET body=? WHERE id=?',(encoded(p),p['id']))
+            ui=old['ui']
+            for name,draft in ui.get('presetDrafts',{}).items():
+                if name in {p['id'] for p in BUILTINS} and isinstance(draft,dict):draft['review']=False
+            self.store.set_setting('ui',ui);self.store.set_setting('migration_api_v1',True)
 
     def write(self,value):
         with self.output_lock:sys.stdout.write(encoded(value)+'\n');sys.stdout.flush()
     def notify(self,event):self.write({'event':event})
     def settings(self):
         saved=self.store.get_setting('config',{})
-        return {**DEFAULTS,**saved,'wd14':{**DEFAULTS['wd14'],**saved.get('wd14',{})},'dsh':{**DEFAULTS['dsh'],**saved.get('dsh',{})}}
+        result={**DEFAULTS,**saved,'wd14':{**DEFAULTS['wd14'],**saved.get('wd14',{})},'dsh':{**DEFAULTS['dsh'],**saved.get('dsh',{})}}
+        result['dsh']['api_key_saved']=(self.store.root/'api-key.dpapi').exists()
+        return result
 
     def presets(self):return [json.loads(r['body']) for r in self.store.query('SELECT body FROM presets ORDER BY rowid')]
 
@@ -81,7 +97,7 @@ class Server:
     def bootstrap(self):
         return {'datasets':self.store.datasets(),'presets':self.presets(),'settings':self.settings(),
             'models':models(self.settings()['model_dirs']),'skills':self.skills(),'jobs':self.jobs.snapshot(),
-            'ui':self.store.get_setting('ui',{}),'data_root':str(self.store.root),'agent':self.agent.info(),'version':'0.1.1'}
+            'ui':self.store.get_setting('ui',{}),'data_root':str(self.store.root),'agent':self.agent.info(),'version':'0.1.2'}
 
     async def dispatch(self,method,p):
         if method=='bootstrap':return self.bootstrap()
@@ -112,12 +128,20 @@ class Server:
         if method=='images.history':return self.store.history(p['id'])
         if method=='settings.save':
             current=self.settings();value={**current,**p};
+            value['dsh']={**current['dsh'],**value.get('dsh',{})}
+            dsh=value['dsh'];api_key=dsh.pop('new_api_key','');clear=dsh.pop('clear_api_key',False);dsh.pop('api_key_saved',None)
+            if dsh.get('transport') not in ('api','native'):raise ValueError('请选择 API 或 Agent 连接方式')
+            if dsh.get('api_source') not in ('dsh','manual'):raise ValueError('请选择 DSH 连接或手动 API')
+            for field,low,high in (('max_tokens',256,131072),('timeout',15,3600)):
+                n=dsh.get(field,DEFAULTS['dsh'][field])
+                if type(n) not in (int,float) or not low<=n<=high:raise ValueError(f'{field} 应在 {low}–{high} 之间')
+                dsh[field]=int(n)
             if value['wd14'].get('model'):value['wd14']['model']=str(Path(value['wd14']['model']).resolve())
             for key in ('threshold','character_threshold'):
                 n=value['wd14'].get(key,.35)
                 if not isinstance(n,(int,float)) or not 0<=n<=1:raise ValueError('阈值应在 0 到 1 之间')
             if value.get('agent_access') not in ('off','read','write'):raise ValueError('Agent 权限设置无效')
-            self.store.set_setting('config',value)
+            self.connections.save_key(api_key,clear);self.store.set_setting('config',value)
             if value['agent_access']=='off':await self.agent.close()
             else:await self.agent.start()
             return self.bootstrap()
@@ -132,8 +156,9 @@ class Server:
         if method=='presets.delete':
             if not p['id'].startswith('custom-'):raise ValueError('内置预设请另存为副本')
             self.store.execute('DELETE FROM presets WHERE id=?',(p['id'],));return self.presets()
-        if method=='dsh.catalog':return await self.native.catalog()
-        if method=='dsh.start':return await self.native.launch()
+        if method=='dsh.catalog':return await self.llm.catalog()
+        if method=='dsh.start':
+            await self.native.launch();return await self.llm.catalog()
         if method=='jobs.list':return self.jobs.snapshot()
         if method=='jobs.start':
             cfg=p['config'];known={s['id']:s for s in self.skills()}
@@ -147,7 +172,7 @@ class Server:
         if method=='assistant.chat':
             image=self.store.image(p['id']);stop=asyncio.Event()
             async def progress(run):self.notify({'kind':'assistant','stage':'DSH 思考中','web_url':run.get('webUrl')})
-            text,native=await self.native.annotate(image,'Help the user improve a training annotation for the attached image. Do not modify files. Answer in Chinese. Current annotation: '+image['text']+'\nWD14 evidence: '+encoded(image['raw'])+'\nQuestion: '+p['instruction'],self.settings()['dsh'],'tkds:chat:'+uuid.uuid4().hex,progress,stop)
+            text,native=await self.llm.annotate(image,'Help the user improve a training annotation for the attached image. Do not modify files. Answer in Chinese. Current annotation: '+image['text']+'\nWD14 evidence: '+encoded(image['raw'])+'\nQuestion: '+p['instruction'],{**self.settings()['dsh'],'proxy':self.settings()['proxy']},'tkds:chat:'+uuid.uuid4().hex,progress,stop)
             return {'text':text,'native':native}
         if method=='characters.save':
             return self.references.save(p)
