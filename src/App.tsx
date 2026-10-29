@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   ArrowLeft,
@@ -53,6 +61,7 @@ import ImageEntry from "./components/ImageEntry";
 import SettingsDialog from "./components/Settings";
 import { flushDrafts } from "./drafts";
 import ImagePreview from "./components/ImagePreview";
+import { useBrowserGestures } from "./useBrowserGestures";
 
 export default function App() {
   const [boot, setBoot] = useState<Boot | null>(null);
@@ -84,6 +93,8 @@ export default function App() {
   const [presetName, setPresetName] = useState("");
   const [presetSave, setPresetSave] = useState(false);
   const [outputHeight, setOutputHeight] = useState(190);
+  const [imageScale, setImageScale] = useState(1);
+  const [browserWidth, setBrowserWidth] = useState(600);
   const [dragging, setDragging] = useState(false);
   const scroll = useRef<HTMLDivElement>(null);
   const initialized = useRef(false);
@@ -146,6 +157,7 @@ export default function App() {
         setAssistant(!!b.ui.assistant);
         setTheme(b.ui.theme || "light");
         setOutputHeight(b.ui.outputHeight || 190);
+        setImageScale(Math.max(0.6, Math.min(2, b.ui.imageScale || 1)));
         initialized.current = true;
       })
       .catch(report);
@@ -195,6 +207,7 @@ export default function App() {
       assistant,
       theme,
       outputHeight,
+      imageScale,
       preset: preset?.id,
     });
   }, [
@@ -204,6 +217,7 @@ export default function App() {
     assistant,
     theme,
     outputHeight,
+    imageScale,
     preset?.id,
     persistUi,
   ]);
@@ -240,13 +254,93 @@ export default function App() {
     if (scroll.current)
       scroll.current.scrollTop = boot?.ui.scroll?.[dataset] || 0;
   }, [dataset]);
+  const gridColumns = Math.max(
+    1,
+    Math.floor((browserWidth + 12) / (190 * imageScale + 12)),
+  );
   const rows = useVirtualizer({
-    count: view === "list" ? items.length : Math.ceil(items.length / 3),
+    count:
+      view === "list" ? items.length : Math.ceil(items.length / gridColumns),
     getScrollElement: () => scroll.current,
-    estimateSize: () => (view === "list" ? 420 : 280),
+    estimateSize: () =>
+      view === "list" ? 110 + 310 * imageScale : 220 * imageScale + 54,
     overscan: 3,
     getItemKey: (i) =>
-      view === "list" ? items[i]?.id || i : items[i * 3]?.id || i,
+      view === "list" ? items[i]?.id || i : items[i * gridColumns]?.id || i,
+  });
+  useEffect(() => {
+    const el = scroll.current;
+    if (!boot || !el) return;
+    const observer = new ResizeObserver(() => {
+      const style = getComputedStyle(el);
+      setBrowserWidth(
+        el.clientWidth -
+          parseFloat(style.paddingLeft) -
+          parseFloat(style.paddingRight),
+      );
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [!!boot]);
+  const zoomAnchor = useRef<string | null>(null);
+  function resizeImages(next: number | ((value: number) => number)) {
+    const first = rows
+      .getVirtualItems()
+      .find((r) => r.end > (scroll.current?.scrollTop || 0));
+    zoomAnchor.current = first
+      ? items[first.index * (view === "grid" ? gridColumns : 1)]?.id || null
+      : null;
+    setImageScale((value) =>
+      Math.max(
+        0.6,
+        Math.min(
+          2,
+          Math.round((typeof next === "function" ? next(value) : next) * 100) /
+            100,
+        ),
+      ),
+    );
+  }
+  useLayoutEffect(() => {
+    rows.measure();
+    const at = items.findIndex((row) => row.id === zoomAnchor.current);
+    if (at >= 0)
+      rows.scrollToIndex(Math.floor(at / (view === "grid" ? gridColumns : 1)), {
+        align: "start",
+      });
+    zoomAnchor.current = null;
+  }, [view, imageScale, gridColumns, rows]);
+  const marquee = useBrowserGestures({
+    container: scroll,
+    ready: !!boot,
+    scope: `${dataset}:${query}:${filter}:${view}:${gridColumns}:${imageScale}`,
+    selection,
+    onSelect: setSelection,
+    onZoom: (delta) => resizeImages((value) => value * Math.exp(delta)),
+    getTargets: (box) => {
+      const el = scroll.current,
+        list = el?.querySelector(".virtual-list");
+      if (!el || !list) return [];
+      const viewport = el.getBoundingClientRect(),
+        content = list.getBoundingClientRect();
+      const left = content.left - viewport.left,
+        top = content.top - viewport.top + el.scrollTop;
+      const columns = view === "grid" ? gridColumns : 1;
+      const width = (content.width - (columns - 1) * 12) / columns;
+      return rows.measurementsCache
+        .filter((r) => r.end + top > box.top && r.start + top < box.bottom)
+        .flatMap((r) =>
+          items
+            .slice(r.index * columns, (r.index + 1) * columns)
+            .map((row, column) => ({
+              id: row.id,
+              left: left + column * (width + 12),
+              right: left + column * (width + 12) + width,
+              top: top + r.start,
+              bottom: top + r.end - 17,
+            })),
+        );
+    },
   });
   const modelGroups = catalog?.capabilities.models.groups || [];
   const route = boot?.settings.dsh;
@@ -363,6 +457,7 @@ export default function App() {
         return;
       }
       const target = e.target as HTMLElement;
+      if (preview || settingsOpen || confirm) return;
       if (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
       if ((e.ctrlKey || e.metaKey) && e.key === "a") {
         e.preventDefault();
@@ -381,13 +476,17 @@ export default function App() {
         if (next) {
           lastSelected.current = next.id;
           setSelection(new Set([next.id]));
-          rows.scrollToIndex(items.indexOf(next));
+          rows.scrollToIndex(
+            Math.floor(
+              items.indexOf(next) / (view === "grid" ? gridColumns : 1),
+            ),
+          );
         }
       }
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [items, rows]);
+  }, [items, rows, view, gridColumns, preview, settingsOpen, confirm]);
   if (!boot)
     return (
       <div className="boot-screen">
@@ -677,6 +776,32 @@ export default function App() {
                   <LayoutGrid size={16} />
                 </button>
               </div>
+              <div className="image-size-control" aria-label="图片显示大小">
+                <button
+                  className="icon-button"
+                  aria-label="缩小图片"
+                  disabled={imageScale <= 0.6}
+                  onClick={() => resizeImages((value) => value - 0.1)}
+                >
+                  <Minus size={13} />
+                </button>
+                <button
+                  className="image-size-value"
+                  title="Ctrl＋滚轮调整图片大小 · 点击恢复 100%"
+                  aria-label="恢复图片显示大小"
+                  onClick={() => resizeImages(1)}
+                >
+                  {Math.round(imageScale * 100)}%
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label="放大图片"
+                  disabled={imageScale >= 2}
+                  onClick={() => resizeImages((value) => value + 0.1)}
+                >
+                  <Plus size={13} />
+                </button>
+              </div>
               <button
                 className="icon-button"
                 title="重新扫描目录"
@@ -753,6 +878,14 @@ export default function App() {
             <div
               className="image-scroll"
               ref={scroll}
+              style={
+                {
+                  "--grid-columns": gridColumns,
+                  "--thumb-height": `${Math.round(220 * imageScale)}px`,
+                  "--entry-image-width": `${Math.max(26, Math.min(60, 38 * imageScale))}%`,
+                  "--entry-image-height": `${Math.round(300 * imageScale)}px`,
+                } as CSSProperties
+              }
               onScroll={(e) => {
                 clearTimeout(scrollTimer.current);
                 const top = e.currentTarget.scrollTop;
@@ -848,11 +981,15 @@ export default function App() {
                       ) : (
                         <div className="thumbnail-grid">
                           {items
-                            .slice(v.index * 3, v.index * 3 + 3)
+                            .slice(
+                              v.index * gridColumns,
+                              (v.index + 1) * gridColumns,
+                            )
                             .map((row) => (
                               <article
                                 className={`thumb-card ${selection.has(row.id) ? "selected" : ""}`}
                                 key={row.id}
+                                data-image-id={row.id}
                                 onClick={(e) =>
                                   toggleSelect(row.id, e.shiftKey)
                                 }
@@ -860,6 +997,7 @@ export default function App() {
                                 <button
                                   className={`check-button ${selection.has(row.id) ? "checked" : ""}`}
                                   aria-label={`选择 ${row.relative}`}
+                                  aria-pressed={selection.has(row.id)}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     toggleSelect(row.id, e.shiftKey);
@@ -871,6 +1009,11 @@ export default function App() {
                                   src={imageUrl(row.id)}
                                   loading="lazy"
                                   alt={row.relative}
+                                  draggable
+                                  onDragStart={(e) => {
+                                    e.preventDefault();
+                                    window.studio.startDrag(row.id);
+                                  }}
                                   onDoubleClick={(e) => {
                                     e.stopPropagation();
                                     setPreview(row);
@@ -891,6 +1034,18 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+              )}
+              {marquee && (
+                <div
+                  className="selection-marquee"
+                  aria-hidden="true"
+                  style={{
+                    left: marquee.left,
+                    top: marquee.top,
+                    width: Math.max(0, marquee.right - marquee.left),
+                    height: Math.max(0, marquee.bottom - marquee.top),
+                  }}
+                />
               )}
             </div>
             {assistant && (
@@ -972,9 +1127,12 @@ export default function App() {
                   取消选择
                 </button>
               )}
-              <span className="footer-tip">
+              <span
+                className="footer-tip"
+                title="从空白处或卡片边缘拖动框选；Shift 增选，Ctrl 反选，Alt 减选；Esc 撤销。图片本身可直接拖出。"
+              >
                 {currentDataset
-                  ? "修改自动保存 · 原图不变"
+                  ? "空白处拖动框选 · Ctrl＋滚轮缩放"
                   : "支持拖入文件夹与图片"}
               </span>
               {currentDataset && (

@@ -1,12 +1,13 @@
 const {chromium}=require('playwright-core'),{spawn}=require('node:child_process'),path=require('node:path'),fs=require('node:fs'),net=require('node:net'),assert=require('node:assert/strict');
 (async()=>{
  const data=path.resolve('.scratch/portable-state');fs.mkdirSync(data,{recursive:true});
- const exe=path.resolve('release/TK-Dataset-Studio-0.1.0-Windows-x64.exe');
+ const version=require('../package.json').version;
+ const exe=path.resolve(process.env.TKDS_QA_PORTABLE||`release/TK-Dataset-Studio-${version}-Windows-x64.exe`);
  const child=spawn(exe,['--remote-debugging-port=9236'],{cwd:process.cwd(),env:{...process.env,TKDS_DATA:data},stdio:'ignore',windowsHide:true});
  let ready=false;for(let i=0;i<120;i++){try{const r=await fetch('http://127.0.0.1:9236/json/version',{signal:AbortSignal.timeout(400)});if(r.ok){ready=true;break}}catch{}await new Promise(r=>setTimeout(r,500))}
  assert.ok(ready,'Portable application must open its actual Electron window');
  const b=await chromium.connectOverCDP('http://127.0.0.1:9236'),p=b.contexts()[0].pages()[0];await p.locator('.workspace').waitFor();
- const boot=await p.evaluate(()=>window.studio.invoke('bootstrap'));assert.equal(boot.version,'0.1.0');assert.equal(boot.datasets.length,0);
+ const boot=await p.evaluate(()=>window.studio.invoke('bootstrap'));assert.equal(boot.version,version);assert.equal(boot.datasets.length,0);
  await p.screenshot({path:'.scratch/screenshots/12-portable-desktop.png'});
  const closed=p.waitForEvent('close',{timeout:15000});await p.evaluate(()=>window.studio.window('close'));await closed;await b.close();
  const endpoint=JSON.parse(fs.readFileSync(path.join(data,'agent-endpoint.json')));assert.equal(endpoint.status,'stopped');assert.throws(()=>process.kill(endpoint.pid,0));

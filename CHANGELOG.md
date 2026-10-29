@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.1 · 2026-10-29
+
+- Drag from blank browser space or card edges to marquee-select in both list and grid. Edge holding auto-scrolls across virtual rows; Shift adds, Ctrl toggles, Alt subtracts, and Esc restores the selection from before the gesture.
+- Ctrl + wheel adjusts browser image size, with visible percentage/reset and +/- controls. Grid columns respond to available width; size survives reload and selection survives resizing.
+- Full preview supports cursor-anchored Ctrl-wheel zoom, drag-to-pan, fit button and double-click reset. Layout boxes transform together with the image.
+- Preserve native image drag-out and annotation editing. Suppress the trailing click after marquee selection; modal keyboard navigation no longer changes the dataset selection behind the preview.
+- Verified in isolated desktop instances with 1000 indexed images; source images and existing annotations remain untouched.
+
 ## 0.1.0 · 2026-10-29
 
 - New independent Windows desktop shell with persistent dataset sidebar, image/annotation list, virtualized grid, light/dark themes, resizable panes and image previews.

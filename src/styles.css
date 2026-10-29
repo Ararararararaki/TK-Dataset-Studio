@@ -551,6 +551,46 @@ a {
   background: var(--surface);
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.image-size-control,
+.preview-zoom-control {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.image-size-control {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  height: 30px;
+}
+.image-size-control .icon-button {
+  width: 23px;
+  height: 26px;
+}
+.image-size-control .image-size-value {
+  width: 39px;
+  padding: 0;
+  height: 26px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+}
+.image-scroll.is-selecting,
+.image-scroll.is-selecting * {
+  user-select: none;
+  cursor: crosshair;
+}
+.selection-marquee {
+  position: fixed;
+  z-index: 8;
+  pointer-events: none;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 2px;
 }
 .search-box {
   height: 32px;
@@ -757,23 +797,25 @@ a {
 }
 .entry-body {
   display: grid;
-  grid-template-columns: minmax(180px, 38%) minmax(0, 1fr);
-  min-height: 310px;
+  grid-template-columns: minmax(120px, var(--entry-image-width, 38%)) minmax(
+      0,
+      1fr
+    );
+  min-height: var(--entry-image-height, 300px);
 }
 .picture-wrap {
   position: relative;
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 300px;
+  min-height: var(--entry-image-height, 300px);
   background: var(--field);
   padding: 12px 12px 28px;
   border-right: 1px solid var(--line);
 }
 .picture-wrap img {
   width: 100%;
-  height: 100%;
-  max-height: 420px;
+  height: var(--entry-image-height, 300px);
   object-fit: contain;
   cursor: zoom-in;
 }
@@ -950,7 +992,7 @@ a {
 }
 .thumbnail-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--grid-columns, 3), minmax(0, 1fr));
   gap: 12px;
 }
 .thumb-card {
@@ -976,7 +1018,7 @@ a {
 .thumb-card > img {
   display: block;
   width: 100%;
-  height: 240px;
+  height: var(--thumb-height, 220px);
   object-fit: contain;
   background: var(--field);
   padding: 8px;
@@ -1655,7 +1697,7 @@ code {
   flex-direction: column;
 }
 .preview-overlay > header {
-  height: 56px;
+  min-height: 56px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1663,9 +1705,15 @@ code {
   border-bottom: 1px solid var(--line);
   background: var(--surface);
   flex-shrink: 0;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-block: 8px;
 }
 .preview-overlay > header > span {
   font-size: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  flex: 1;
 }
 .preview-overlay small {
   margin-left: 9px;
@@ -1675,7 +1723,8 @@ code {
 .preview-overlay header > div {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 .preview-overlay header button {
   font-size: 11px;
@@ -1761,9 +1810,6 @@ code {
   .image-scroll {
     padding: 0 14px;
   }
-  .entry-body {
-    grid-template-columns: minmax(145px, 37%) minmax(0, 1fr);
-  }
   .annotation {
     padding: 9px 10px;
   }
@@ -1782,12 +1828,6 @@ code {
   .footer-tip {
     font-size: 9px;
   }
-  .thumbnail-grid {
-    gap: 8px;
-  }
-  .thumb-card > img {
-    height: 180px;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -1797,18 +1837,34 @@ code {
     transition: none !important;
   }
 }
-.preview-stage {
+.preview-overlay > .preview-stage {
   min-height: 0;
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 18px;
+  overflow: hidden;
+  user-select: none;
+  touch-action: none;
 }
 .layout-preview {
-  height: 100%;
-  max-width: 100%;
-  width: auto;
+  flex-shrink: 0;
+  max-width: none;
+  transform-origin: center;
+  display: block;
+}
+.preview-stage.can-pan {
+  cursor: grab;
+}
+.preview-stage.is-panning {
+  cursor: grabbing;
+}
+.preview-zoom-control output {
+  min-width: 40px;
+  text-align: center;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 .settings-layout .path-block {
   max-width: 100%;

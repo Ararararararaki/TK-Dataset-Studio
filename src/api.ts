@@ -94,6 +94,7 @@ export type Ui = {
   assistant?: boolean;
   layout?: Record<string, number>;
   outputHeight?: number;
+  imageScale?: number;
   scroll?: Record<string, number>;
 };
 export type Boot = {

@@ -31,6 +31,7 @@
 | 目录版 | 多次 2/2，合计约 3.1–4.1 秒 | 实际包内 CPU 推理；920×650 无横向溢出；包内 MCP、立即编辑后关闭保存，后端与端口释放 |
 | 自动检查 | Python 32/32；Node 1/1；TS/Vite 通过 | 状态存储、编译器、冲突、恢复、阶段任务、Relay 协议、任务取消、资料保留与 HTTP 权限 |
 | 单文件便携包 | 已实际启动并关闭 | 独立解压运行；后端、端口、便携启动器均释放 |
+| 0.1.1 浏览手势 | 开发版及目录包通过 | 1000 张索引夹具；正反向框选、Ctrl/Shift/Alt、Esc、边缘自动滚动、列表/网格缩放、刷新记忆、大图锚点及拖动、适应复位、920×650 深浅主题 |
 
 原生耗时是当前路由、当前图片和网络下的单次记录，不是统一速度承诺。SDK 会在 stderr 发出依赖注解警告，当前已测工具调用正常；未以屏蔽警告冒充兼容性修复。
 
@@ -43,6 +44,12 @@
 最终包的 UI、实际推理、立即编辑后关闭、进程退出与端口释放结果保存在本机 `.scratch/evidence/packaged.json`；截图在 `.scratch/screenshots/`，未把用户图片作为发行资产或提交到 Git。
 
 ## 可复现命令
+
+0.1.1 手势验收使用 `node scripts/gestures-e2e.cjs` 与 `node scripts/gestures-e2e.cjs --packaged`。需要本机 `.scratch/scale-dataset`（1000 张重复内容索引夹具，见上表限制）；`TKDS_QA_EXE` 可指定隔离的待发布目录包，`TKDS_QA_STATE` 可指定新的独立测试数据目录。脚本不加载 WD14 或发出付费 LLM 请求。
+
+本轮目录包跨屏框选保留 32 张选择，挂载 45 张卡片 DOM；数量随拖动时间和视口变化。Ctrl 滚轮将浏览大小从 100% 调至 122%，刷新保留；大图缩放后鼠标锚点的归一化偏差小于 0.01。窗口与后台关闭后再次验证端口可绑定，浏览器没有 JS 页面错误。证据位于 `.scratch/evidence/gestures-packaged.json`，截图以 `gestures-` 开头。
+
+手势使用原生 [Pointer Capture](https://developer.mozilla.org/en-US/docs/Web/API/Element/setPointerCapture) 和非被动 [wheel 监听](https://developer.mozilla.org/en-US/docs/Web/API/Element/wheel_event)；在本版 Electron 上实际验证，未引入交互依赖。对框选的尾随 click 进行抑制，防止结束时再反选一次卡片。
 
 ```powershell
 npm run build

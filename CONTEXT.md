@@ -1,6 +1,6 @@
 # TK Dataset Studio · domain and ownership
 
-Version 0.1.0. An independent Windows desktop for image-training annotations, extracted at the behavior boundary from the Toolkit Agent. No ComfyUI imports, Torch installation, shared Python mutation or existing repository deployment.
+Version 0.1.1. An independent Windows desktop for image-training annotations, extracted at the behavior boundary from the Toolkit Agent. No ComfyUI imports, Torch installation, shared Python mutation or existing repository deployment.
 
 ## Vocabulary
 
@@ -18,6 +18,8 @@ Version 0.1.0. An independent Windows desktop for image-training annotations, ex
 | `electron/main.cjs` | Window, dialogs, registered-image protocol, process owner, close handshake |
 | `electron/bridge.cjs` | Correlated stdio RPC and owned Python lifecycle |
 | `src/App.tsx` | Workspace presentation, virtualization, selection and configuration drafts |
+| `src/useBrowserGestures.ts` | Cancellable marquee and Ctrl-wheel gestures, using virtual content geometry; no separate selection state |
+| `src/components/ImagePreview.tsx` | Image and Layout overlay share cursor-anchored zoom, bounded panning and fit reset |
 | `src/components/ImageEntry.tsx`, `src/drafts.ts` | Serialized editor saves, durable local draft and revision reconciliation |
 | `backend/server.py` | One coordinator, public dispatch, settings and service ownership |
 | `backend/store.py` | SQLite/WAL, revision checks, sidecars, backups, thumbnail cache |
