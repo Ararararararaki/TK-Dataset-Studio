@@ -12,7 +12,7 @@ from .references import References
 from .agent_api import AgentAPI
 
 DEFAULTS={'model_dirs':[],'wd14':{'model':'','device':'cpu','threshold':.35,'character_threshold':.85,'exclude_tags':''},
- 'dsh':{'transport':'api','api_source':'dsh','profile':'web','descriptor':'','timeout':180,'max_tokens':8192,'api_reasoning':'off','api_base':'','api_model':'','repair_format':False},'overwrite':False,'output_warning':12000,'proxy':'http://127.0.0.1:7890','skill_ids':[],
+ 'dsh':{'transport':'api','api_source':'dsh','profile':'web','descriptor':'','timeout':180,'max_tokens':8192,'api_reasoning':'off','api_base':'','api_model':'','repair_format':False},'overwrite':False,'backup_before_overwrite':True,'output_warning':12000,'proxy':'http://127.0.0.1:7890','skill_ids':[],
  'lookup_characters':True,'character_snapshot':'','character_update':True,'lookup_missing':True,'agent_access':'read'}
 
 class Server:
@@ -97,7 +97,7 @@ class Server:
     def bootstrap(self):
         return {'datasets':self.store.datasets(),'presets':self.presets(),'settings':self.settings(),
             'models':models(self.settings()['model_dirs']),'skills':self.skills(),'jobs':self.jobs.snapshot(),
-            'ui':self.store.get_setting('ui',{}),'data_root':str(self.store.root),'agent':self.agent.info(),'version':'0.1.3'}
+            'ui':self.store.get_setting('ui',{}),'data_root':str(self.store.root),'agent':self.agent.info(),'version':'0.1.4'}
 
     async def dispatch(self,method,p):
         if method=='bootstrap':return self.bootstrap()
@@ -124,10 +124,12 @@ class Server:
         if method=='images.get':return self.store.image(p['id'])
         if method=='images.thumbnail':return await asyncio.to_thread(self.store.thumbnail,p['id'],p.get('full',False))
         if method=='images.save':
-            result=await asyncio.to_thread(self.store.save,p['id'],p['text'],p.get('format','manual'),p['revision'],reason=p.get('_actor','手动编辑'));self.notify({'kind':'image','id':p['id'],'stage':'已保存'});return result
+            result=await asyncio.to_thread(self.store.save,p['id'],p['text'],p.get('format','manual'),p['revision'],reason=p.get('_actor','手动编辑'),backup=self.settings()['backup_before_overwrite']);self.notify({'kind':'image','id':p['id'],'stage':'已保存'});return result
         if method=='images.history':return self.store.history(p['id'])
         if method=='settings.save':
             current=self.settings();value={**current,**p};
+            for flag in ('overwrite','backup_before_overwrite'):
+                if type(value[flag]) is not bool:raise ValueError('覆盖与备份选项必须为开关')
             value['dsh']={**current['dsh'],**value.get('dsh',{})}
             dsh=value['dsh'];api_key=dsh.pop('new_api_key','');clear=dsh.pop('clear_api_key',False);dsh.pop('api_key_saved',None)
             if dsh.get('transport') not in ('api','native'):raise ValueError('请选择 API 或 Agent 连接方式')

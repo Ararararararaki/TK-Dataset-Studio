@@ -66,7 +66,7 @@ class Jobs:
         rows=self.store.query('SELECT * FROM images WHERE '+where+' ORDER BY relative COLLATE NOCASE',args)
         if ids is not None: rows=[r for r in rows if r['id'] in set(ids)]
         eligible=[r for r in rows if config.get('overwrite') or not Path(r['path']).with_suffix('.txt').exists()]
-        if not eligible: raise ValueError('没有待处理图片；已有 TXT 默认跳过，重打时请开启“备份并覆盖已有文本”')
+        if not eligible: raise ValueError('没有待处理图片；已有 TXT 默认跳过，重打时请开启“覆盖已有文本”')
         jid=uuid.uuid4().hex;config={**config,'extra':extra}
         self.store.execute('INSERT INTO jobs VALUES(?,?,?,?,?)',(jid,dataset_id,encoded(config),'running',time.time()))
         for row in eligible:self.store.execute('INSERT INTO job_items(job_id,image_id,status,base_revision) VALUES(?,?,?,?)',(jid,row['id'],'pending',row['revision']))
@@ -183,7 +183,7 @@ class Jobs:
         stat=Path(row['path']).stat()
         if (stat.st_mtime_ns,stat.st_size)!=(row['mtime'],row['size']):raise Conflict('原图已改变，请重新扫描后处理')
         if self.stop.is_set():raise asyncio.CancelledError()
-        try:self.store.save(iid,text,preset['format'],item['base_revision'],reason='自动打标',expected_sha=row['sidecar_sha'],overwrite=config.get('overwrite',False))
+        try:self.store.save(iid,text,preset['format'],item['base_revision'],reason='自动打标',expected_sha=row['sidecar_sha'],overwrite=config.get('overwrite',False),backup=config.get('backup_before_overwrite',True))
         except Conflict as e:
             self.store.preserve_result(iid,text,preset['format'],'未覆盖：'+str(e));raise
 

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { api, type Boot, type Catalog, type Settings as Config } from "../api";
 import ApiConnectionSettings from "./ApiConnectionSettings";
+import OverwriteOptions from "./OverwriteOptions";
 export default function Settings({
   boot,
   catalog,
@@ -505,22 +506,8 @@ export default function Settings({
             {tab === "files" && (
               <>
                 <h3>文件与输出</h3>
-                <label className="check-field">
-                  <input
-                    type="checkbox"
-                    checked={config.overwrite}
-                    onChange={(e) =>
-                      void persist({
-                        ...config,
-                        overwrite: e.target.checked,
-                      }).catch(onError)
-                    }
-                  />
-                  <span>
-                    备份并覆盖已有 TXT
-                    <small>默认关闭，已有同名文本自动跳过。</small>
-                  </span>
-                </label>
+                <OverwriteOptions overwrite={config.overwrite} backup={config.backup_before_overwrite}
+                  onChange={(change) => void persist({ ...config, ...change }).catch(onError)} />
                 <label>
                   输出长度提醒（字符）
                   <input
@@ -552,7 +539,7 @@ export default function Settings({
                   TK Dataset Studio{" "}
                   <span className="version">{boot.version}</span>
                 </h3>
-                <p>本地 WD14 · 原生 DSH 看图 · 数据集标注</p>
+                <p>本地 WD14 · API / DSH Agent 看图 · 数据集标注</p>
                 <h4>应用数据位置</h4>
                 <code className="path-block">{boot.data_root}</code>
                 <p className="help">

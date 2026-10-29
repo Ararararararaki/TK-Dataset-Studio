@@ -2,6 +2,14 @@
 
 所有实测都在新项目中进行。原 Toolkit 仓库和 ComfyUI 运行目录仅作只读参考；没有重新启动或替换用户宿主。测试图片为两张复杂、穿着完整的可爱二次元构图的独立副本，不是单色合成图。
 
+## 0.1.4 可选备份与网格文本预览
+
+- Python 48/48、Node 1/1、TS/Vite 构建通过。储存与批次用例检查关闭备份后确实没有新 TXT 备份，修改历史和旧 revision 冲突仍有效；Agent HTTP 保存也遵循同一设置。
+- `node scripts/annotation-hover-e2e.cjs` 开发桌面通过：1440×900 浅色与 920×650 深色，6674 字符完整标注、空标注、键盘触发、浮层滚动、Esc、浏览区滚动关闭、悬停不改变选择；偏好刷新保持，真实 IPC 保存不生成 TXT 备份。
+- 此界面夹具仅用三张占位 PNG 验证交互，不是 WD14/LLM 质量或性能样本。预览读取已有标注，无新模型请求。缓存限 128 个版本，未对一千张不同长文本同时做内存基准。
+- `scripts/skills-e2e.cjs` 在 0.1.4 开发桌面再次通过，Skill 与通道可见性保留。
+- 同三组桌面检查也在 0.1.4 目录包通过：`annotation-hover-e2e --packaged`、`skills-e2e --packaged`、`api-e2e --packaged`。最后一组使用真实 WD14 与模拟 API，2 张图片各 1 次请求、2 份 TXT；关闭后后端及端口释放。模拟 API 不是模型质量测试。
+
 ## 0.1.2 API 调用修复
 
 0.1.3 补充：`runtime/python.exe -m unittest discover -s tests -p test_annotation_regressions.py` 修复前能重现“纯标签保存成功”，修复后验证纯文本、caption JSON 和 hybrid 的标签回复不计完成且不写 TXT，保留短描述和含逗号的正常描述。`node scripts/skills-e2e.cjs` 修复前捕获 272px 复选框挤出名称；修复后验证 920/1440px、深浅主题、不可自然断行的长名称、Skill 勾选持久化、主界面双通道切换及通道标签。完整 Python 检查增至 46 项。此格式检测不代替语义质量评价。

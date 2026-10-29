@@ -13,6 +13,14 @@ class StorageTests(unittest.TestCase):
     def test_import_recursive_and_duplicate(self):
         sub=self.folder/'子目录';sub.mkdir();Image.new('RGB',(70,90)).save(sub/'another.webp')
         self.store.import_paths([str(self.folder)]);self.assertEqual(len(self.store.datasets()),1);self.assertEqual(len(self.store.list_images(self.did)),2)
+    def test_no_backup_option_retains_history_and_revision_guard(self):
+        row=self.store.save(self.row['id'],'first','tags',0)
+        updated=self.store.save(row['id'],'second','caption',row['revision'],backup=False)
+        self.assertEqual((self.folder/'画面.txt').read_text(encoding='utf8'),'second')
+        self.assertFalse(list((self.root/'app/backups').rglob('*.txt')))
+        self.assertEqual(self.store.history(row['id'])[0]['text'],'first')
+        self.assertEqual(updated['revision'],row['revision']+1)
+        with self.assertRaises(Conflict):self.store.save(row['id'],'stale','caption',row['revision'],backup=False)
     def test_source_bytes_unchanged(self):
         original=(self.folder/'画面.png').read_bytes();self.store.save(self.row['id'],'girl, blue sky','tags',0)
         self.assertEqual(original,(self.folder/'画面.png').read_bytes());self.assertEqual((self.folder/'画面.txt').read_text(encoding='utf8'),'girl, blue sky')

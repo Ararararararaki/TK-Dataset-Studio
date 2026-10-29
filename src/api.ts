@@ -83,6 +83,7 @@ export type Settings = {
   };
   dsh: DshConfig;
   overwrite: boolean;
+  backup_before_overwrite: boolean;
   output_warning: number;
   proxy: string;
   skill_ids: string[];

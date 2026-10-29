@@ -31,6 +31,13 @@ class JobTests(unittest.IsolatedAsyncioTestCase):
     async def test_wd14_sidecars(self):
         await self.jobs.start(self.did,self.config());await self.jobs.task
         self.assertEqual(len(list(self.folder.glob('*.txt'))),2);self.assertEqual(self.native.calls,0)
+    async def test_batch_uses_saved_backup_preference(self):
+        for row in self.store.list_images(self.did):self.store.save(row['id'],'original','tags',0)
+        cfg=self.config(overwrite=True);cfg['backup_before_overwrite']=False
+        await self.jobs.start(self.did,cfg);await self.jobs.task
+        self.assertTrue(all(r['status']=='done' for r in self.store.list_images(self.did)))
+        self.assertFalse(list((self.store.root/'backups').rglob('*.txt')))
+        self.assertTrue(all(self.store.history(r['id'])[0]['text']=='original' for r in self.store.list_images(self.did)))
     async def test_existing_sidecar_skipped(self):
         (self.folder/'one.txt').write_text('keep')
         r=await self.jobs.start(self.did,self.config());await self.jobs.task

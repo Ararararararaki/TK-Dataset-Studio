@@ -62,6 +62,8 @@ import SettingsDialog from "./components/Settings";
 import { flushDrafts } from "./drafts";
 import ImagePreview from "./components/ImagePreview";
 import { useBrowserGestures } from "./useBrowserGestures";
+import OverwriteOptions from "./components/OverwriteOptions";
+import { useAnnotationHover } from "./components/AnnotationHover";
 
 export default function App() {
   const [boot, setBoot] = useState<Boot | null>(null);
@@ -77,6 +79,9 @@ export default function App() {
   const [assistant, setAssistant] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const annotationHover = useAnnotationHover();
+  const hideAnnotationHover = annotationHover.hide;
+  useEffect(() => hideAnnotationHover(), [view, dataset, query, filter, settingsOpen, hideAnnotationHover]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
@@ -1004,6 +1009,12 @@ export default function App() {
                                 className={`thumb-card ${selection.has(row.id) ? "selected" : ""}`}
                                 key={row.id}
                                 data-image-id={row.id}
+                                aria-describedby={annotationHover.activeId === row.id ? annotationHover.descriptionId : undefined}
+                                onPointerEnter={(e) => { if (e.pointerType === "mouse" && e.buttons === 0) annotationHover.show(row, e.currentTarget, ticks[row.id] || 0); }}
+                                onPointerLeave={annotationHover.leave}
+                                onPointerDown={annotationHover.hide}
+                                onFocus={(e) => annotationHover.show(row, e.currentTarget, ticks[row.id] || 0)}
+                                onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) annotationHover.leave(); }}
                                 onClick={(e) =>
                                   toggleSelect(row.id, e.shiftKey)
                                 }
@@ -1590,22 +1601,8 @@ export default function App() {
                     </div>
                   </section>
                   <section>
-                    <label className="check-field">
-                      <input
-                        type="checkbox"
-                        checked={boot.settings.overwrite}
-                        onChange={(e) =>
-                          void updateSettings({
-                            ...boot.settings,
-                            overwrite: e.target.checked,
-                          })
-                        }
-                      />
-                      <span>
-                        备份并覆盖已有文本
-                        <small>默认跳过已有 TXT，避免重复打标</small>
-                      </span>
-                    </label>
+                    <OverwriteOptions overwrite={boot.settings.overwrite} backup={boot.settings.backup_before_overwrite}
+                      onChange={(change) => void updateSettings({ ...boot.settings, ...change })} />
                     <div className="save-note">
                       <CheckCircle2 size={14} />
                       <span>
@@ -1631,6 +1628,7 @@ export default function App() {
           </>
         )}
       </PanelGroup>
+      {annotationHover.preview}
       {dragging && (
         <div className="drop-overlay">
           <FolderPlus size={48} strokeWidth={1} />
@@ -1661,8 +1659,8 @@ export default function App() {
           >
             <h2>重新打标 {confirm.ids.length} 张图片</h2>
             <p>
-              使用当前“{preset?.name}”预设。现有 TXT
-              会先备份，手动修改和历史记录会保留。
+              使用当前“{preset?.name}”预设。现有 TXT 将被替换，
+              {boot.settings.backup_before_overwrite ? "覆盖前另存原 TXT；" : "不生成额外 TXT 备份；"}修改历史仍保留。
             </p>
             {confirm.extra && <blockquote>{confirm.extra}</blockquote>}
             <div className="button-row">
@@ -1673,7 +1671,7 @@ export default function App() {
                 onClick={() => void start(confirm.ids, true, confirm.extra)}
               >
                 <Play size={14} />
-                备份并开始
+                {boot.settings.backup_before_overwrite ? "备份并开始" : "覆盖并开始"}
               </button>
             </div>
           </section>

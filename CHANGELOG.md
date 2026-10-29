@@ -1,11 +1,16 @@
 # Changelog
 
+## 0.1.4 · 2026-10-30
+
+- Split overwrite and TXT backup into two persistent controls. Disabling backup affects automatic batches, manual edits and Agent saves; revision history and conflict checks remain. Retag confirmation reflects the selected backup behavior. Existing backups are not deleted.
+- Add thumbnail-grid hover previews for complete saved annotations, with scrolling, copying, keyboard focus and Escape dismissal. Preview one image on demand, cache at most 128 revisions, constrain the popup to the window and dismiss on browser scrolling. No LLM calls or bulk caption loading.
+- First public Windows portable release, including 0.1.3 fixes. Source, third-party notices, setup instructions and checksums are published separately from user data, models and credentials.
+
 ## 0.1.3 · 2026-10-30
 
 - Fix invisible Skill names: the expanded-section full-width input rule also stretched checkboxes, pushing names outside the inspector. Restrict it to non-checkbox inputs and wrap long names inside their row. Show selected Skill count and preserve selection after reload.
 - Add API / native DSH Agent channel buttons directly above the model selector, with selected-state feedback and a persistent toolbar channel label. Show the active batch's saved channel while running; switching settings affects the next batch. API mode is clearly described as not creating DSH conversations.
 - Reject recognizable pure tag lists in natural-language and hybrid caption output, including legacy caption JSON, before saving or incrementing completed counts. Preserve proper prose with commas and short captions; tags mode remains available. Do not manufacture prose by wrapping tags in a sentence.
-- First public Windows portable release. Source, third-party notices, setup instructions and checksums are published separately from user data, models and credentials.
 
 ## 0.1.2 · 2026-10-29
 

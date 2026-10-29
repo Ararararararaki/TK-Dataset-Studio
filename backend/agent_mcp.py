@@ -50,14 +50,14 @@ async def studio_import(paths:list[str])->dict:
 
 @mcp.tool()
 async def studio_start(dataset_id:str,preset_id:str,ids:list[str]|None=None,overwrite:bool=False,instruction:str='')->dict:
-    """Start a persisted batch using the desktop's settings. Existing TXT files skip by default; overwrite=True backs them up. Requires write access."""
+    """Start a persisted batch using the desktop's settings. Existing TXT files skip by default; overwrite=True replaces them, following the desktop's backup preference. Requires write access."""
     boot=await rpc('bootstrap');preset=next((p for p in boot['presets'] if p['id']==preset_id),None)
     if not preset:raise ValueError('预设不存在')
     return await rpc('jobs.start',{'dataset_id':dataset_id,'ids':ids,'extra':instruction,'config':{**boot['settings'],'overwrite':overwrite,'preset':preset}})
 
 @mcp.tool()
 async def studio_edit(image_id:str,text:str,revision:int,format:str='manual')->dict:
-    """Save a reviewed annotation with optimistic revision guard, backup and audit. Requires write access. Read studio_annotation immediately before editing."""
+    """Save a reviewed annotation with optimistic revision guard, the desktop's backup preference and audit. Requires write access. Read studio_annotation immediately before editing."""
     return await rpc('images.save',{'id':image_id,'text':text,'revision':revision,'format':format})
 
 @mcp.tool()

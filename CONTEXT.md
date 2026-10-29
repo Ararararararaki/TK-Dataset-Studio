@@ -1,6 +1,6 @@
 # TK Dataset Studio · domain and ownership
 
-Version 0.1.3. An independent Windows desktop for image-training annotations, extracted at the behavior boundary from the Toolkit Agent. No ComfyUI imports, Torch installation, shared Python mutation or existing repository deployment.
+Version 0.1.4. An independent Windows desktop for image-training annotations, extracted at the behavior boundary from the Toolkit Agent. No ComfyUI imports, Torch installation, shared Python mutation or existing repository deployment.
 
 ## Vocabulary
 

@@ -48,7 +48,7 @@
 | `studio_assistant` | `image_id`, `instruction`；使用当前 LLM 通道咨询，不自动改文件 |
 | `studio_audit` | 最近 100 条 Agent 操作记录 |
 
-建议流程：读取状态 → 查看图片和标注 → 选定预设启动 → 轮询批次 → 核对原图 → 用刚读取的 revision 保存修改。冲突时重新读取并判断，不覆盖用户刚做的编辑。`overwrite` 默认为 false；设为 true 时仍走备份与版本保护。
+建议流程：读取状态 → 查看图片和标注 → 选定预设启动 → 轮询批次 → 核对原图 → 用刚读取的 revision 保存修改。冲突时重新读取并判断，不覆盖用户刚做的编辑。`overwrite` 默认为 false；设为 true 时遵循桌面备份设置，始终保留修改历史与版本保护。
 
 ## 本机 HTTP RPC
 

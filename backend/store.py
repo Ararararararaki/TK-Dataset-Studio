@@ -137,7 +137,7 @@ class Store:
                 bg.convert('RGB').save(dest,'JPEG',quality=90)
         return str(dest)
 
-    def save(self, iid, text, fmt, revision, *, reason='手动编辑', expected_sha=None, overwrite=True):
+    def save(self, iid, text, fmt, revision, *, reason='手动编辑', expected_sha=None, overwrite=True, backup=True):
         if not isinstance(text,str): raise ValueError('文本格式不正确')
         with self.lock:
             row = self.image(iid); sidecar = Path(row['path']).with_suffix('.txt')
@@ -149,9 +149,9 @@ class Store:
             actual = digest(sidecar)
             if actual != (row['sidecar_sha'] if expected_sha is None else expected_sha): raise Conflict('TXT 已在其他程序中改变，请重新扫描后编辑')
             if actual is not None and not overwrite: raise Conflict('已有 TXT，按当前配置跳过')
-            if actual is not None:
-                backup = self.root / 'backups' / iid / f'{time.time_ns()}.txt'
-                backup.parent.mkdir(parents=True,exist_ok=True); backup.write_bytes(sidecar.read_bytes())
+            if actual is not None and backup:
+                backup_path = self.root / 'backups' / iid / f'{time.time_ns()}.txt'
+                backup_path.parent.mkdir(parents=True,exist_ok=True); backup_path.write_bytes(sidecar.read_bytes())
             temp = sidecar.parent / f'.{sidecar.name}.{uuid.uuid4().hex}.studio-tmp'
             try:
                 with temp.open('w',encoding='utf-8',newline='\n') as f:
