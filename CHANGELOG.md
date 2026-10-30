@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 · 2026-10-30
+
+- Fix the offline harness expectation for the route count: the plugin registers four routes (`/status`, `/run`, `/models`, `/tool`), so the assertion is 4 and the run is 18/18 again. Sync the same wording in `docs/VERIFICATION.md`, `CONTEXT.md` and the changelog.
+- Return **404** for an unknown provider on `GET /tk-annotate/models` (empty or missing provider stays 400), so callers can tell the three cases apart by status code alone. The Python client reads the JSON body first, so it needs no change.
+- Read the plugin version from `dsh-bridge/package.json` instead of hardcoding it, and align the plugin to the app version, so `/status` no longer reports a stale `0.1.0`.
+- Document that `reasoningEffort: off` does not zero the reasoning budget: three measured calls still spent 378 / 379 / 453 reasoning tokens, so the `max_tokens` headroom is still required.
+- Add `docs/VERIFICATION-0.2.0.md`: eight end-to-end checks with the controlled zero-session experiment, the non-loopback rejection evidence and the deviation list.
+
 ## 0.2.0 · 2026-10-30
 
 - Add a DSH port bridge channel that runs one model call inside the already-running Harness over HTTP, so the host's loaded plugins and provider credentials apply while no DSH conversation, session or task file is created. Ship the bridge as an installable plugin (`dsh-bridge/`) exposing `GET /tk-annotate/status`, `POST /tk-annotate/run`, `POST /tk-annotate/tool` and `GET /tk-annotate/models`; accept loopback callers only. Verified on a real host: 471 registered tools including `purge_status` / `purge_apply` / `purge_revert`, and images reach the model.
@@ -7,7 +15,7 @@
 - Run WD14 tagging in a bounded process pool and gate LLM requests with their own concurrency slots, so one image can be tagged while another is already under review. Default both to 2, clamp to 1–8, and pause the batch after three consecutive failures or an authentication error.
 - Rewrite the natural-language caption guidance to match the reference dataset's measured shape: one paragraph, 44–59 words, 250–335 characters, at most two sentences, main subject first, scene anchor clause as the usual close, no finite copula, no per-body-part inventory, no colon attribute lists. Raise the default WD14 threshold from 0.35 to 0.6 so weak background tags stop crowding the annotation.
 - Deep-merge the WD14 settings block and validate both thresholds against their real ranges, so saving one field no longer discards the model, device, character threshold and exclusion list, and a boolean or out-of-range value is rejected instead of stored.
-- Add regression tests for the bridge client, the concurrency contracts and the caption presets, plus an offline harness that exercises the plugin's three routes without a live host. Document the measured throughput, the reasoning-token budget that starves visible output, and the upstream content refusals in docs/VERIFICATION.md and docs/CAPTION-QA.md.
+- Add regression tests for the bridge client, the concurrency contracts and the caption presets, plus an offline harness that exercises the plugin's four routes without a live host. Document the measured throughput, the reasoning-token budget that starves visible output, and the upstream content refusals in docs/VERIFICATION.md and docs/CAPTION-QA.md.
 
 ## 0.1.4 · 2026-10-30
 

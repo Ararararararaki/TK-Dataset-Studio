@@ -80,6 +80,8 @@ caption 预设用内置专用指导词，不再受「指导词」框里的通用
 
 **`max_tokens` 必须给思考链留出空间。** 思考型模型会先花输出预算做推理，预算不够时表现为「HTTP 200、无错误、正文为空」——不是网络问题，也不是内容拒绝。实测 `maxTokens=2048` 时收尾帧是 `{"done":true,"chars":0,"usage":{"outputTokens":2048,"reasoningTokens":2048}}`，输出预算被推理全部占用；同一张图把 `maxTokens` 提到 `6144` 后 14 秒正常出正文。所以看到「标注为空」先把 `max_tokens` 调大（默认 8192，建议不低于 6144），不要先怀疑连接。
 
+**思考等级选 `off` 也不等于零思考。** 实测同一个 provider 传 `reasoningEffort: off`，三次调用仍产生 `reasoningTokens = 378 / 379 / 453`。`off` 只是「不主动请求更高档位」，思考 token 照样会花输出预算，所以 `max_tokens` 的余量不能因为选了 `off` 就省掉。
+
 **上游内容政策不在本软件可控范围内。** 实测露骨内容图片会被 provider 直接拒绝（opencode-go 明确回复拒绝，workbuddy 网关过滤成 `image unavailable`）。软件原样记录拒绝原因，不修改提示词去绕过；这类数据集只能用本地 WD14 标签打标。
 
 ## 并行度

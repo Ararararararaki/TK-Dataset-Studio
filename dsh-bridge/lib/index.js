@@ -17,6 +17,8 @@
  * TK_ANNOTATE_TOKEN），配置了就强制校验。
  */
 
+import { readFileSync } from 'node:fs';
+
 export const name = 'tk-annotate-bridge';
 
 /** 依赖的宿主服务。tools 是可选的，单独用 ctx.get 取。 */
@@ -24,6 +26,15 @@ export const inject = ['webServer', 'llm', 'attachments'];
 
 const PREFIX = '/tk-annotate';
 const MAX_BODY_BYTES = 96 * 1024 * 1024;
+
+/** 插件版本从 package.json 读，避免与 TK 应用版本各写一处而漂移。 */
+const VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+  } catch {
+    return '0.0.0';
+  }
+})();
 
 let llmModule;
 let attachmentModule;
@@ -134,7 +145,7 @@ export function apply(ctx, config = {}) {
     sendJson(res, 200, {
       ok: true,
       service: name,
-      version: '0.1.0',
+      version: VERSION,
       port: ctx.webServer.port,
       origin: typeof ctx.webServer.getOrigin === 'function' ? ctx.webServer.getOrigin() : undefined,
       providers,
@@ -171,7 +182,8 @@ export function apply(ctx, config = {}) {
       }
       sendJson(res, 200, { ok: true, provider, models });
     } catch (error) {
-      sendJson(res, 200, { ok: false, provider, models: [], error: String(error?.message ?? error) });
+      // 未知 provider 走 404：空/缺参数是 400，调用方可以只凭状态码区分三种情况。
+      sendJson(res, 404, { ok: false, provider, models: [], error: String(error?.message ?? error) });
     }
   }
 

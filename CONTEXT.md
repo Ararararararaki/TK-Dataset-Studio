@@ -30,7 +30,7 @@ Version 0.1.4. An independent Windows desktop for image-training annotations, ex
 | `backend/tagger.py` | ONNX + matching CSV preprocessing/inference, isolated in a child process |
 | `backend/native.py` | Relay MCP, real image attachments, exact registered workspace, final extraction |
 | `backend/host_bridge.py` | Loopback HTTP client for the in-DSH bridge plugin: one model call per image, no session, plugin tools callable |
-| `dsh-bridge/` | DSH plugin exposing `/tk-annotate/{status,run,tool}` through `ctx.webServer` and `ctx.llm.stream`, with an offline harness |
+| `dsh-bridge/` | DSH plugin exposing `/tk-annotate/{status,run,models,tool}` through `ctx.webServer` and `ctx.llm.stream`, with an offline harness |
 | `backend/presets.py` | Task format contracts and deterministic source-pixel Layout compilation |
 | `backend/references.py` | Cache/snapshot evidence, bounded daily maintenance, missing-record lookup |
 | `backend/agent_api.py`, `backend/agent_mcp.py` | Authenticated loopback and stdio adapters over the same coordinator |

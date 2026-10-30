@@ -1,6 +1,6 @@
 {
   "name": "dsh-tk-annotate-bridge",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "private": true,
   "description": "DSH plugin: loopback HTTP bridge that serves TK Dataset Studio annotations through DSH's own LLM service — one request, no session, no conversation.",
   "type": "module",

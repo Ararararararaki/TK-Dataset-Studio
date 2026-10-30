@@ -118,7 +118,7 @@ async function main() {
 
   const server = await serve(webServer);
   const base = `http://127.0.0.1:${webServer.port}`;
-  check('注册了三条路由', webServer.routes.size === 3, [...webServer.routes.keys()].join(','));
+  check('注册了四条路由', webServer.routes.size === 4, [...webServer.routes.keys()].join(','));
 
   // 1) status
   const status = await (await fetch(`${base}/tk-annotate/status`)).json();
