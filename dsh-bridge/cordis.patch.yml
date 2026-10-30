@@ -1,0 +1,9 @@
+# TK Dataset Studio 打标桥 —— 作为 profile bundle 安装时生效。
+# 直接以本地包注入时（dev_inject_plugin）不需要这个文件。
+- insert:
+    - id: tk-annotate-bridge
+      name: 'dsh-tk-annotate-bridge'
+      config:
+        verbose: false
+        # token: 留空表示只校验回环地址；填了则要求请求头 x-tk-token 一致。
+        token: ''

@@ -5,22 +5,22 @@ from .native import NativeFailure, NativeAttention
 from .presets import build_task, compile_output
 from .store import Conflict, encoded
 
-class Worker:
-    def __init__(self): self.process=None;self.lock=asyncio.Lock();self.logs=None
+class _Slot:
+    """One WD14 subprocess; the pool keeps several so tagging overlaps LLM calls."""
+    def __init__(self): self.process=None;self.logs=None
     async def infer(self,path,options,root):
-        async with self.lock:
-            if self.process is None or self.process.returncode is not None:
-                if self.logs:self.logs.close()
-                self.logs=open(Path(root)/'wd14-worker.log','ab')
-                self.process=await asyncio.create_subprocess_exec(sys.executable,'-u','-m','backend.tagger',stdin=asyncio.subprocess.PIPE,stdout=asyncio.subprocess.PIPE,stderr=self.logs,limit=8*1024*1024,creationflags=getattr(__import__('subprocess'),'CREATE_NO_WINDOW',0))
-            self.process.stdin.write((encoded({'path':path,'options':options})+'\n').encode());await self.process.stdin.drain()
-            try: line=await asyncio.wait_for(self.process.stdout.readline(),timeout=240)
-            except asyncio.TimeoutError:
-                await self.close();raise ValueError('WD14 运行超时，工作进程已释放')
-            if not line: raise ValueError('WD14 工作进程退出，请查看 wd14-worker.log')
-            result=json.loads(line)
-            if result.get('error'): raise ValueError(result['error'])
-            return result['result']
+        if self.process is None or self.process.returncode is not None:
+            if self.logs:self.logs.close()
+            self.logs=open(Path(root)/'wd14-worker.log','ab')
+            self.process=await asyncio.create_subprocess_exec(sys.executable,'-u','-m','backend.tagger',stdin=asyncio.subprocess.PIPE,stdout=asyncio.subprocess.PIPE,stderr=self.logs,limit=8*1024*1024,creationflags=getattr(__import__('subprocess'),'CREATE_NO_WINDOW',0))
+        self.process.stdin.write((encoded({'path':path,'options':options})+chr(10)).encode());await self.process.stdin.drain()
+        try: line=await asyncio.wait_for(self.process.stdout.readline(),timeout=240)
+        except asyncio.TimeoutError:
+            await self.close();raise ValueError('WD14 运行超时，工作进程已释放')
+        if not line: raise ValueError('WD14 工作进程退出，请查看 wd14-worker.log')
+        result=json.loads(line)
+        if result.get('error'): raise ValueError(result['error'])
+        return result['result']
     async def close(self):
         p=self.process;self.process=None
         if p and p.returncode is None:
@@ -29,9 +29,30 @@ class Worker:
             except asyncio.TimeoutError: p.kill();await p.wait()
         if self.logs:self.logs.close();self.logs=None
 
+class Worker:
+    """Bounded pool of WD14 subprocesses; size 1 behaves exactly like the old worker."""
+    def __init__(self,size=1):
+        self.size=max(1,int(size));self.slots=[];self.free=None
+    def configure(self,size):
+        size=max(1,int(size))
+        if size==self.size and self.free is not None:return
+        self.size=size;self.slots=[];self.free=None
+    def _pool(self):
+        if self.free is None:
+            self.slots=[_Slot() for _ in range(self.size)];self.free=asyncio.Queue()
+            for slot in self.slots:self.free.put_nowait(slot)
+        return self.free
+    async def infer(self,path,options,root):
+        pool=self._pool();slot=await pool.get()
+        try:return await slot.infer(path,options,root)
+        finally:pool.put_nowait(slot)
+    async def close(self):
+        slots,self.slots,self.free=self.slots,[],None
+        for slot in slots:await slot.close()
+
 class Jobs:
     def __init__(self,store,native,notify,references=None):
-        self.store=store;self.native=native;self.notify=notify;self.worker=Worker();self.task=None;self.stop=asyncio.Event();self.pausing=False
+        self.store=store;self.native=native;self.notify=notify;self.worker=Worker();self.task=None;self.llm_slot=asyncio.Semaphore(1);self.stop=asyncio.Event();self.pausing=False
         self.references=references
 
     def snapshot(self):
@@ -94,33 +115,52 @@ class Jobs:
 
     async def run(self,jid):
         job=self.store.query('SELECT * FROM jobs WHERE id=?',(jid,))[0];config=json.loads(job['config']);preset=config['preset']
-        consecutive=0
-        try:
-            for item in self.store.query("SELECT * FROM job_items WHERE job_id=? AND status='pending'",(jid,)):
-                if self.pausing or self.stop.is_set():break
+        concurrency=config.get('concurrency') or {}
+        wd14=max(1,min(8,int(concurrency.get('wd14',1) or 1)))
+        llm=max(1,min(8,int(concurrency.get('llm',1) or 1)))
+        if getattr(self.worker,'configure',None):self.worker.configure(wd14)
+        self.llm_slot=asyncio.Semaphore(llm)
+        slots=asyncio.Semaphore(max(wd14,llm))
+        state={'consecutive':0};guard=asyncio.Lock()
+        async def record_failure(item,error=None,interrupted=False):
+            iid=item['image_id']
+            async with guard:
+                state['consecutive']=0 if interrupted else state['consecutive']+1
+                count=state['consecutive']
+                if interrupted:
+                    self.store.execute("UPDATE job_items SET status='cancelled' WHERE job_id=? AND image_id=?",(jid,iid))
+                    self.store.execute("UPDATE images SET status='failed',error='任务已中断，可重试' WHERE id=?",(iid,))
+                else:
+                    self.store.execute("UPDATE images SET status='failed',error=? WHERE id=?",(str(error)[:2000],iid))
+                    self.store.execute("UPDATE job_items SET status='failed',error=? WHERE job_id=? AND image_id=?",(str(error)[:2000],jid,iid))
+                    if isinstance(error,NativeFailure) and any(word in str(error).lower() for word in ('401','403','authentication','credential','未连接')):self.pausing=True
+                if not interrupted and count>=3:self.pausing=True
+            if not interrupted and count>=3:
+                self.notify({'kind':'job','id':jid,'message':'连续 3 张失败，已暂停批次；请检查错误后用当前设置重试，剩余图片不会继续请求'})
+        async def one(item):
+            if self.pausing or self.stop.is_set():return
+            async with slots:
+                if self.pausing or self.stop.is_set():return
                 iid=item['image_id'];row=self.store.image(iid)
                 if not config.get('overwrite') and Path(row['path']).with_suffix('.txt').exists():
-                    self.store.execute("UPDATE job_items SET status='skipped' WHERE job_id=? AND image_id=?",(jid,iid));continue
+                    self.store.execute("UPDATE job_items SET status='skipped' WHERE job_id=? AND image_id=?",(jid,iid));return
                 self.store.execute("UPDATE images SET status='running',error='' WHERE id=?",(iid,))
                 self.store.execute("UPDATE job_items SET status='running' WHERE job_id=? AND image_id=?",(jid,iid))
                 self.notify({'kind':'image','id':iid,'stage':'准备识别','job_id':jid})
                 try:
                     await self.process(jid,item,row,config,preset)
                     self.store.execute("UPDATE job_items SET status='done',stage='completed',run_id='' WHERE job_id=? AND image_id=?",(jid,iid))
-                    consecutive=0
+                    async with guard:state['consecutive']=0
                 except asyncio.CancelledError:
-                    self.store.execute("UPDATE job_items SET status='cancelled' WHERE job_id=? AND image_id=?",(jid,iid))
-                    self.store.execute("UPDATE images SET status='failed',error='任务已中断，可重试' WHERE id=?",(iid,));break
+                    await record_failure(item,interrupted=True)
                 except Exception as e:
-                    consecutive+=1
-                    self.store.execute("UPDATE images SET status='failed',error=? WHERE id=?",(str(e)[:2000],iid))
-                    self.store.execute("UPDATE job_items SET status='failed',error=? WHERE job_id=? AND image_id=?",(str(e)[:2000],jid,iid))
-                    if isinstance(e,NativeFailure) and any(word in str(e).lower() for word in ('401','403','authentication','credential','未连接')):self.pausing=True
-                    if consecutive>=3:
-                        self.pausing=True;self.notify({'kind':'job','id':jid,'message':'连续 3 张失败，已暂停批次；请检查错误后用当前设置重试，剩余图片不会继续请求'})
+                    await record_failure(item,e)
                 self.notify({'kind':'image','id':iid,'stage':'已保存' if self.store.image(iid)['status']=='done' else '失败，未保存','job_id':jid})
-            state='cancelled' if self.stop.is_set() else 'paused' if self.pausing else 'completed'
-            self.store.execute('UPDATE jobs SET state=? WHERE id=?',(state,jid))
+        try:
+            items=self.store.query("SELECT * FROM job_items WHERE job_id=? AND status='pending'",(jid,))
+            await asyncio.gather(*(one(item) for item in items))
+            final='cancelled' if self.stop.is_set() else 'paused' if self.pausing else 'completed'
+            self.store.execute('UPDATE jobs SET state=? WHERE id=?',(final,jid))
         finally:
             await self.worker.close();self.notify({'kind':'job','id':jid,'message':'任务状态已保存'})
 
@@ -155,7 +195,8 @@ class Jobs:
                         self.store.execute('UPDATE images SET native=? WHERE id=?',(encoded({k:run.get(k) for k in ('runId','requestId','sessionId','webUrl','status','model','provider','transport')}),iid))
                         self.notify({'kind':'image','id':iid,'stage':'看图打标中' if stage=='draft' else '可选复核中'})
                     try:
-                        text,meta=await self.native.annotate(row,prompt,{**config.get('dsh',{}),'proxy':config.get('proxy'),'detail_pass':stage=='review'},f'tkds:{jid}:{iid}:{stage}:{operation_attempt}',progress,self.stop,resume)
+                        async with self.llm_slot:
+                            text,meta=await self.native.annotate(row,prompt,{**config.get('dsh',{}),'proxy':config.get('proxy'),'detail_pass':stage=='review'},f'tkds:{jid}:{iid}:{stage}:{operation_attempt}',progress,self.stop,resume)
                         self.store.execute('UPDATE images SET native=? WHERE id=?',(encoded(meta),iid))
                         self.store.execute("UPDATE job_items SET draft=?,run_id='' WHERE job_id=? AND image_id=?",(text,jid,iid));resume='';break
                     except NativeAttention:raise
@@ -178,7 +219,8 @@ class Jobs:
                     self.store.execute('UPDATE images SET native=? WHERE id=?',(encoded({k:run.get(k) for k in ('runId','sessionId','webUrl','status')}),iid))
                     self.notify({'kind':'image','id':iid,'stage':'修正输出格式'})
                 if '拒绝' in str(error):raise
-                repaired,_=await self.native.annotate(row,fix,config.get('dsh',{}),f'tkds:{jid}:{iid}:repair',fix_progress,self.stop)
+                async with self.llm_slot:
+                    repaired,_=await self.native.annotate(row,fix,config.get('dsh',{}),f'tkds:{jid}:{iid}:repair',fix_progress,self.stop)
                 text=compile_output(repaired,preset['format'],row['width'],row['height'])
         stat=Path(row['path']).stat()
         if (stat.st_mtime_ns,stat.st_size)!=(row['mtime'],row['size']):raise Conflict('原图已改变，请重新扫描后处理')

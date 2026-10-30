@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CheckCircle2,
   Download,
@@ -10,7 +10,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { api, type Boot, type Catalog, type Settings as Config } from "../api";
+import { api, type Boot, type BridgeModel, type Catalog, type Settings as Config } from "../api";
 import ApiConnectionSettings from "./ApiConnectionSettings";
 import OverwriteOptions from "./OverwriteOptions";
 export default function Settings({
@@ -30,6 +30,29 @@ export default function Settings({
 }) {
   const [config, setConfig] = useState(boot.settings);
   const [busy, setBusy] = useState("");
+  const [bridgeNote, setBridgeNote] = useState("");
+  const [models, setModels] = useState<BridgeModel[]>([]);
+  const bridgeProvider =
+    config.dsh.transport === "bridge" ? config.dsh.provider || "" : "";
+  useEffect(() => {
+    if (!bridgeProvider) {
+      setModels([]);
+      return;
+    }
+    let live = true;
+    void api<BridgeModel[]>("dsh.models", { provider: bridgeProvider })
+      .then((value) => {
+        if (live) setModels(Array.isArray(value) ? value : []);
+      })
+      .catch(() => {
+        if (live) setModels([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [bridgeProvider]);
+  const currentModel = models.find((m) => m.id === config.dsh.model);
+  const providers = catalog?.providers ?? [];
   const [tab, setTab] = useState("connection");
   async function persist(next: Config) {
     setConfig(next);
@@ -117,15 +140,16 @@ export default function Settings({
                   打标连接
                 </h3>
                 <p className="help">
-                  默认直接传图，一次请求后保存标注。完整 Agent 仅在主动选择时启用。
+                  默认直接传图，一次请求后保存标注。需要 DSH 插件生效时选端口桥接；完整 Agent 仅在主动选择时启用。
                 </p>
                 <label>执行方式
-                  <select aria-label="打标执行方式" value={config.dsh.transport || "api"} onChange={e=>void persist({...config,dsh:{...config.dsh,transport:e.target.value as "api"|"native",provider:"",model:""}}).then(()=>probe()).catch(onError)}>
+                  <select aria-label="打标执行方式" value={config.dsh.transport || "api"} onChange={e=>void persist({...config,dsh:{...config.dsh,transport:e.target.value as "api"|"native"|"bridge",provider:"",model:""}}).then(()=>probe()).catch(onError)}>
                     <option value="api">直接 API · 不创建 DSH 对话</option>
+                    <option value="bridge">DSH 端口桥接 · 不创建对话 · 插件生效</option>
                     <option value="native">完整 DSH Agent · 会创建独立对话</option>
                   </select>
                 </label>
-                {config.dsh.transport!=="native" && <ApiConnectionSettings config={config} persist={persist} onError={onError}/>}
+                {config.dsh.transport==="api" && <ApiConnectionSettings config={config} persist={persist} onError={onError}/>}
                 {config.dsh.transport==="native" && <>
                 <p className="help">此模式通过 Relay 调用完整 Agent，每张图片会创建独立会话，并保留 DSH 的原生插件和权限处理。</p>
                 <label>
@@ -198,7 +222,7 @@ export default function Settings({
                     <>
                       <CheckCircle2 size={17} />
                       <div>
-                        <strong>{catalog.transport==="api"?"API 连接就绪 · 无 DSH 会话":"原生 Agent 连接就绪"}</strong>
+                        <strong>{catalog.transport==="api"?"API 连接就绪 · 无 DSH 会话":catalog.transport==="bridge"?"DSH 端口桥接就绪 · 无会话 · 插件已加载":"原生 Agent 连接就绪"}</strong>
                         <p>{catalog.host_url}</p>
                       </div>
                     </>
@@ -255,6 +279,165 @@ export default function Settings({
                     )}
                   </>
                 )}
+                {config.dsh.transport === "bridge" && (
+                  <>
+                    <p className="help">
+                      请求发到正在运行的 DSH 端口，由 DSH 宿主自己完成一次模型调用：不创建会话、不写对话记录，用的是 DSH 已加载的 provider 与插件。每张图都是一次干净请求，不带历史，所以耗时不会随张数变长。
+                    </p>
+                    <label>
+                      桥接端口
+                      <input
+                        placeholder="http://127.0.0.1:3080"
+                        value={config.dsh.bridge_url || ""}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            dsh: { ...config.dsh, bridge_url: e.target.value },
+                          })
+                        }
+                        onBlur={() => void persist(config).catch(onError)}
+                      />
+                    </label>
+                    <label>
+                      Provider
+                      {providers.length ? (
+                        <select
+                          value={config.dsh.provider || ""}
+                          onChange={(e) => {
+                            const provider = e.target.value;
+                            setModels([]);
+                            void persist({
+                              ...config,
+                              dsh: { ...config.dsh, provider, model: "" },
+                            }).catch(onError);
+                          }}
+                        >
+                          <option value="">选择 DSH 已注册的 provider</option>
+                          {providers.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name ? `${p.name} · ${p.id}` : p.id}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          placeholder="填 DSH 里已注册的 provider，例如 workbuddy"
+                          value={config.dsh.provider || ""}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              dsh: { ...config.dsh, provider: e.target.value },
+                            })
+                          }
+                          onBlur={() => void persist(config).catch(onError)}
+                        />
+                      )}
+                    </label>
+                    <label>
+                      模型
+                      {models.length ? (
+                        <select
+                          value={config.dsh.model || ""}
+                          onChange={(e) =>
+                            void persist({
+                              ...config,
+                              dsh: { ...config.dsh, model: e.target.value },
+                            }).catch(onError)
+                          }
+                        >
+                          <option value="">选择模型</option>
+                          {models.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name === m.id ? m.id : `${m.name} · ${m.id}`}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          placeholder={
+                            config.dsh.provider
+                              ? "该 provider 没有公布模型清单，手填模型 id"
+                              : "先选 provider"
+                          }
+                          value={config.dsh.model || ""}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              dsh: { ...config.dsh, model: e.target.value },
+                            })
+                          }
+                          onBlur={() => void persist(config).catch(onError)}
+                        />
+                      )}
+                    </label>
+                    {!!currentModel?.reasoning.length && (
+                      <label>
+                        思考等级
+                        <select
+                          value={config.dsh.reasoning_effort || ""}
+                          onChange={(e) =>
+                            void persist({
+                              ...config,
+                              dsh: {
+                                ...config.dsh,
+                                reasoning_effort: e.target.value,
+                              },
+                            }).catch(onError)
+                          }
+                        >
+                          <option value="">模型默认</option>
+                          {currentModel.reasoning.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {r.label || r.id}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    {catalog?.transport === "bridge" && catalog.connected && (
+                      <>
+                        <h4>宿主插件工具</h4>
+                        <p className="help">
+                          {catalog.tools?.available
+                            ? `DSH 工具注册表里可见 ${catalog.tools.names.length} 个工具${
+                                catalog.purge ? "，含 dsh-purge" : ""
+                              }。这是宿主真实注册的清单，不是安装目录扫描。`
+                            : "宿主没有暴露工具注册表，无法确认插件是否加载。"}
+                        </p>
+                        <div className="button-row">
+                          <button
+                            disabled={!!busy}
+                            onClick={() => {
+                              setBusy("purge");
+                              setBridgeNote("");
+                              void api("dsh.tool", {
+                                name: "purge_status",
+                                arguments: {},
+                              })
+                                .then((value) =>
+                                  setBridgeNote(
+                                    `purge_status 已在本机 DSH 里执行成功：${JSON.stringify(
+                                      value,
+                                    ).slice(0, 240)}`,
+                                  ),
+                                )
+                                .catch(onError)
+                                .finally(() => setBusy(""));
+                            }}
+                          >
+                            {busy === "purge" ? (
+                              <LoaderCircle size={14} className="spin" />
+                            ) : (
+                              <CheckCircle2 size={14} />
+                            )}
+                            验证 dsh-purge
+                          </button>
+                        </div>
+                        {bridgeNote && <p className="help">{bridgeNote}</p>}
+                      </>
+                    )}
+                  </>
+                )}
                 <label>
                   单次运行等待上限（秒）
                   <input
@@ -271,6 +454,48 @@ export default function Settings({
                     onBlur={() => void persist(config).catch(onError)}
                   />
                 </label>
+                <label>
+                  WD14 并行进程
+                  <input
+                    type="number"
+                    min={1}
+                    max={8}
+                    value={config.concurrency?.wd14 ?? 1}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        concurrency: {
+                          wd14: Number(e.target.value),
+                          llm: config.concurrency?.llm ?? 1,
+                        },
+                      })
+                    }
+                    onBlur={() => void persist(config).catch(onError)}
+                  />
+                </label>
+                <label>
+                  LLM 并发请求
+                  <input
+                    type="number"
+                    min={1}
+                    max={8}
+                    value={config.concurrency?.llm ?? 1}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        concurrency: {
+                          wd14: config.concurrency?.wd14 ?? 1,
+                          llm: Number(e.target.value),
+                        },
+                      })
+                    }
+                    onBlur={() => void persist(config).catch(onError)}
+                  />
+                </label>
+                <p className="help">
+                  两项都大于 1 时，一张图在看图打标的同时另一张可以先做 WD14
+                  识别，整体耗时接近两者中较慢的那个。WD14 用独立进程池，内存随进程数增加；原生 Agent 通道下并发会同时占用多个会话，建议先用 1。
+                </p>
               </>
             )}
             {tab === "agent" && (
@@ -369,6 +594,26 @@ export default function Settings({
                   <FolderPlus size={15} />
                   添加模型文件夹
                 </button>
+                <label>
+                  标签强度
+                  <input
+                    type="number"
+                    min={0.05}
+                    max={0.95}
+                    step={0.05}
+                    value={config.wd14.threshold}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        wd14: { ...config.wd14, threshold: Number(e.target.value) },
+                      })
+                    }
+                    onBlur={() => void persist(config).catch(onError)}
+                  />
+                </label>
+                <p className="help">
+                  越高标签越少越准。0.6 通常留下 15–30 个主要标签，0.35 会把弱相关的背景标签也带进来。
+                </p>
                 <h4>已发现 {boot.models.length} 套模型</h4>
                 {boot.models.map((m) => (
                   <div className="model-row" key={m.id}>

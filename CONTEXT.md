@@ -23,12 +23,14 @@ Version 0.1.4. An independent Windows desktop for image-training annotations, ex
 | `src/components/ImageEntry.tsx`, `src/drafts.ts` | Serialized editor saves, durable local draft and revision reconciliation |
 | `backend/server.py` | One coordinator, public dispatch, settings and service ownership |
 | `backend/store.py` | SQLite/WAL, revision checks, sidecars, backups, thumbnail cache |
-| `backend/jobs.py` | Batch snapshot, one worker, durable save/count, bounded failure, pause/cancel |
+| `backend/jobs.py` | Batch snapshot, bounded WD14 pool plus LLM concurrency slots, durable save/count, bounded failure, pause/cancel |
 | `backend/connections.py` | Read-only static DSH API configuration, live credential resolution and DPAPI manual keys |
-| `backend/api_transport.py` | Single API/Agent routing owner; stateless image request, final-content SSE, no silent fallback |
+| `backend/api_transport.py` | Single API/bridge/Agent routing owner; stateless image request, final-content SSE, no silent fallback |
 | `backend/images.py`, `backend/responses.py` | Image attachment budgets and shared final-response/refusal classification |
 | `backend/tagger.py` | ONNX + matching CSV preprocessing/inference, isolated in a child process |
 | `backend/native.py` | Relay MCP, real image attachments, exact registered workspace, final extraction |
+| `backend/host_bridge.py` | Loopback HTTP client for the in-DSH bridge plugin: one model call per image, no session, plugin tools callable |
+| `dsh-bridge/` | DSH plugin exposing `/tk-annotate/{status,run,tool}` through `ctx.webServer` and `ctx.llm.stream`, with an offline harness |
 | `backend/presets.py` | Task format contracts and deterministic source-pixel Layout compilation |
 | `backend/references.py` | Cache/snapshot evidence, bounded daily maintenance, missing-record lookup |
 | `backend/agent_api.py`, `backend/agent_mcp.py` | Authenticated loopback and stdio adapters over the same coordinator |

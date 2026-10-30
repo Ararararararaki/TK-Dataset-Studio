@@ -48,7 +48,9 @@ export type ImageDetail = ImageRow & {
   };
 };
 export type DshConfig = {
-  transport: "api" | "native";
+  transport: "api" | "native" | "bridge";
+  bridge_url?: string;
+  reasoning_effort?: string;
   api_source?: "dsh" | "manual";
   api_base?: string;
   api_model?: string;
@@ -82,6 +84,7 @@ export type Settings = {
     exclude_tags: string;
   };
   dsh: DshConfig;
+  concurrency: { wd14: number; llm: number };
   overwrite: boolean;
   backup_before_overwrite: boolean;
   output_warning: number;
@@ -142,8 +145,21 @@ type Model = {
   name?: string;
   reasoning?: { efforts: { id: string; label?: string }[] };
 };
+export type BridgeModel = {
+  id: string;
+  name: string;
+  reasoning: { id: string; label: string }[];
+};
+
 export type Catalog = {
-  transport?: "api" | "native";
+  transport?: "api" | "native" | "bridge";
+  error?: string;
+  port?: number;
+  providers?: { id: string; name?: string }[];
+  models?: BridgeModel[];
+  tools?: { available: boolean; names: string[] };
+  purge?: boolean;
+  token_required?: boolean;
   workspaces: { workspaceId: string; path: string; title: string }[];
   connected: boolean;
   host_url: string;

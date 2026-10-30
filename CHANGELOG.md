@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 · 2026-10-30
+
+- Add a DSH port bridge channel that runs one model call inside the already-running Harness over HTTP, so the host's loaded plugins and provider credentials apply while no DSH conversation, session or task file is created. Ship the bridge as an installable plugin (`dsh-bridge/`) exposing `GET /tk-annotate/status`, `POST /tk-annotate/run`, `POST /tk-annotate/tool` and `GET /tk-annotate/models`; accept loopback callers only. Verified on a real host: 471 registered tools including `purge_status` / `purge_apply` / `purge_revert`, and images reach the model.
+- Make the bridge channel the recommended path when plugins must actually run. Read the host's provider and model catalog and its reasoning levels from the bridge instead of typing them; keep the API channel for direct stateless requests and describe the native Agent channel as the only one that creates a conversation.
+- Run WD14 tagging in a bounded process pool and gate LLM requests with their own concurrency slots, so one image can be tagged while another is already under review. Default both to 2, clamp to 1–8, and pause the batch after three consecutive failures or an authentication error.
+- Rewrite the natural-language caption guidance to match the reference dataset's measured shape: one paragraph, 44–59 words, 250–335 characters, at most two sentences, main subject first, scene anchor clause as the usual close, no finite copula, no per-body-part inventory, no colon attribute lists. Raise the default WD14 threshold from 0.35 to 0.6 so weak background tags stop crowding the annotation.
+- Deep-merge the WD14 settings block and validate both thresholds against their real ranges, so saving one field no longer discards the model, device, character threshold and exclusion list, and a boolean or out-of-range value is rejected instead of stored.
+- Add regression tests for the bridge client, the concurrency contracts and the caption presets, plus an offline harness that exercises the plugin's three routes without a live host. Document the measured throughput, the reasoning-token budget that starves visible output, and the upstream content refusals in docs/VERIFICATION.md and docs/CAPTION-QA.md.
+
 ## 0.1.4 · 2026-10-30
 
 - Split overwrite and TXT backup into two persistent controls. Disabling backup affects automatic batches, manual edits and Agent saves; revision history and conflict checks remain. Retag confirmation reflects the selected backup behavior. Existing backups are not deleted.

@@ -11,8 +11,10 @@ BUILTINS = [
  {'id':'moss','name':'MOSS Layout','description':'逐对象定位，一次请求后本地编译为 MOSS 中心化 yxyx JSON。','format':'moss','pipeline':'wd14-llm','guidance':FAITHFUL,'review':False},
 ]
 
+CAPTION = '''Write one training-set caption: a single English paragraph, 44-59 words (roughly 250-335 characters), at most two sentences and never more. Open with "A" or "An" plus the main subject, or with a short scene phrase followed by the subject. Then state in compact noun-phrase and participle chains what the picture shows: who is present, their appearance, what they are doing and how they are positioned, and where it happens. Close most captions with a short scene-anchor clause naming what is behind or around the subject (for example "playground bars and blue sky behind her"). Name the rendering style only occasionally, in about one caption in ten, never in all of them. When body parts, nudity or sexual acts are visible, state them plainly and factually, never euphemised or moralised, and never add anything the picture does not show. Do not tour the body part by part, do not enumerate attributes after a colon, do not use a comma-stacked keyword list, and do not use a finite copula ("she is", "he is", "it is", "is positioned", "is visible"): keep to noun phrases and participles. Do not add quality or aesthetic tokens, artist or studio names, camera equipment, or commentary about the request. Do not open with "The image shows" or "This is an image of".'''
 def build_task(preset, row, raw, references='', extra=''):
     fmt = preset['format']
+    guide = CAPTION if fmt == 'caption' else preset.get('guidance', FAITHFUL)
     contract = {
       'caption':'Return only the finished English training caption as plain text, describing the visible subjects, actions and spatial relationships in connected natural language. Convert supported WD14 hints into prose; a comma-separated or line-separated tag list is not a caption. This output format takes priority over any auxiliary Skill format. No JSON wrapper, Markdown, preface, notes, process explanation or promises. If the image is unavailable, return {"error":"image unavailable"} instead of guessing.',
       'tags':'Return only lowercase Danbooru tags separated by commas. Do not invent unsupported tags.',
@@ -21,7 +23,7 @@ def build_task(preset, row, raw, references='', extra=''):
     }[fmt]
     return f'''Analyze the attached image for a training dataset. It is the visual source of truth.
 Actual EXIF-oriented image dimensions: {row['width']} x {row['height']} pixels.
-{preset.get('guidance',FAITHFUL)}
+{guide}
 {contract}
 WD14 evidence (image-level candidates with scores): {json.dumps(raw,ensure_ascii=False)}
 Character reference evidence (fallible; check against image): {references or 'none available'}

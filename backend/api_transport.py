@@ -2,6 +2,7 @@
 import asyncio, json, time, uuid
 from .connections import is_loopback
 from .images import file_block
+from .host_bridge import Bridge
 from .native import NativeFailure
 from .responses import check_response
 
@@ -90,12 +91,26 @@ class ApiTransport:
         return ''
 
 class AnnotationClient:
-    """One transport owner; never silently fall back between API and Agent."""
+    """One transport owner; never silently fall back between API, bridge and Agent."""
     def __init__(self,native,connections):
-        self.native=native;self.connections=connections;self.api=ApiTransport(connections)
+        self.native=native;self.connections=connections;self.api=ApiTransport(connections);self.bridge=Bridge(connections)
     async def catalog(self):
-        return await (self.native.catalog() if self.connections.settings().get('transport')=='native' else self.connections.catalog())
+        transport=self.connections.settings().get('transport')
+        if transport=='native':return await self.native.catalog()
+        if transport=='bridge':return await self.bridge_catalog()
+        return await self.connections.catalog()
+    async def bridge_catalog(self):
+        config=self.connections.settings()
+        try:value=await self.bridge.status(config)
+        except NativeFailure as e:return {'connected':False,'transport':'bridge','error':str(e),'plugins':[],'providers':[],'tools':{'available':False,'names':[]}}
+        return {'connected':True,'transport':'bridge','host_url':config.get('bridge_url') or 'http://127.0.0.1:3080',
+                'port':value.get('port'),'providers':value.get('providers') or [],'tools':value.get('tools') or {'available':False,'names':[]},
+                'purge':bool(value.get('purge')),'token_required':bool(value.get('tokenRequired')),'plugins':[]}
+    async def bridge_models(self,provider):
+        return await self.bridge.models(self.connections.settings(),provider)
+    async def bridge_tool(self,name,arguments=None):
+        return await self.bridge.tool(self.connections.settings(),name,arguments)
     async def annotate(self,row,task,config,key,progress,stop,resume_run=''):
-        transport=self.native if config.get('transport')=='native' else self.api
+        transport={'native':self.native,'bridge':self.bridge}.get(config.get('transport'),self.api)
         return await transport.annotate(row,task,config,key,progress,stop,resume_run)
-    async def cancel_all(self):await asyncio.gather(self.api.cancel_all(),self.native.cancel_all())
+    async def cancel_all(self):await asyncio.gather(self.api.cancel_all(),self.native.cancel_all(),self.bridge.cancel_all())

@@ -11,8 +11,9 @@ from .jobs import Jobs
 from .references import References
 from .agent_api import AgentAPI
 
-DEFAULTS={'model_dirs':[],'wd14':{'model':'','device':'cpu','threshold':.35,'character_threshold':.85,'exclude_tags':''},
- 'dsh':{'transport':'api','api_source':'dsh','profile':'web','descriptor':'','timeout':180,'max_tokens':8192,'api_reasoning':'off','api_base':'','api_model':'','repair_format':False},'overwrite':False,'backup_before_overwrite':True,'output_warning':12000,'proxy':'http://127.0.0.1:7890','skill_ids':[],
+DEFAULTS={'model_dirs':[],'wd14':{'model':'','device':'cpu','threshold':.6,'character_threshold':.85,'exclude_tags':''},
+ 'dsh':{'transport':'api','api_source':'dsh','profile':'web','descriptor':'','timeout':180,'max_tokens':8192,'api_reasoning':'off','api_base':'','api_model':'','repair_format':False,'bridge_url':'http://127.0.0.1:3080'},
+ 'concurrency':{'wd14':2,'llm':2},'overwrite':False,'backup_before_overwrite':True,'output_warning':12000,'proxy':'http://127.0.0.1:7890','skill_ids':[],
  'lookup_characters':True,'character_snapshot':'','character_update':True,'lookup_missing':True,'agent_access':'read'}
 
 class Server:
@@ -131,17 +132,30 @@ class Server:
             for flag in ('overwrite','backup_before_overwrite'):
                 if type(value[flag]) is not bool:raise ValueError('覆盖与备份选项必须为开关')
             value['dsh']={**current['dsh'],**value.get('dsh',{})}
+            value['wd14']={**current['wd14'],**value.get('wd14',{})}
             dsh=value['dsh'];api_key=dsh.pop('new_api_key','');clear=dsh.pop('clear_api_key',False);dsh.pop('api_key_saved',None)
-            if dsh.get('transport') not in ('api','native'):raise ValueError('请选择 API 或 Agent 连接方式')
+            conc=value.get('concurrency')
+            if isinstance(conc,dict):
+                for key in ('wd14','llm'):
+                    try:number=int(conc.get(key,1))
+                    except (TypeError,ValueError):raise ValueError('并行度必须是 1 到 8 之间的整数') from None
+                    if number<1 or number>8:raise ValueError('并行度必须是 1 到 8 之间的整数')
+                    conc[key]=number
+            if dsh.get('transport') not in ('api','native','bridge'):raise ValueError('请选择 API、桥接或 Agent 连接方式')
+            if dsh.get('transport')=='bridge':
+                from .host_bridge import endpoint
+                try:dsh['bridge_url']=endpoint(dsh.get('bridge_url'))
+                except ValueError as e:raise ValueError(str(e)) from None
             if dsh.get('api_source') not in ('dsh','manual'):raise ValueError('请选择 DSH 连接或手动 API')
             for field,low,high in (('max_tokens',256,131072),('timeout',15,3600)):
                 n=dsh.get(field,DEFAULTS['dsh'][field])
                 if type(n) not in (int,float) or not low<=n<=high:raise ValueError(f'{field} 应在 {low}–{high} 之间')
                 dsh[field]=int(n)
             if value['wd14'].get('model'):value['wd14']['model']=str(Path(value['wd14']['model']).resolve())
-            for key in ('threshold','character_threshold'):
-                n=value['wd14'].get(key,.35)
-                if not isinstance(n,(int,float)) or not 0<=n<=1:raise ValueError('阈值应在 0 到 1 之间')
+            for key,low,high in (('threshold',.05,.95),('character_threshold',.05,.99)):
+                n=value['wd14'].get(key,DEFAULTS['wd14'][key])
+                if isinstance(n,bool) or not isinstance(n,(int,float)) or not low<=n<=high:raise ValueError(f'阈值 {key} 应在 {low} 到 {high} 之间')
+                value['wd14'][key]=float(n)
             if value.get('agent_access') not in ('off','read','write'):raise ValueError('Agent 权限设置无效')
             self.connections.save_key(api_key,clear);self.store.set_setting('config',value)
             if value['agent_access']=='off':await self.agent.close()
@@ -159,6 +173,8 @@ class Server:
             if not p['id'].startswith('custom-'):raise ValueError('内置预设请另存为副本')
             self.store.execute('DELETE FROM presets WHERE id=?',(p['id'],));return self.presets()
         if method=='dsh.catalog':return await self.llm.catalog()
+        if method=='dsh.tool':return await self.llm.bridge_tool(p['name'],p.get('arguments'))
+        if method=='dsh.models':return await self.llm.bridge_models(p.get('provider'))
         if method=='dsh.start':
             await self.native.launch();return await self.llm.catalog()
         if method=='jobs.list':return self.jobs.snapshot()
