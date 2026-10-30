@@ -17,12 +17,14 @@
  * TK_ANNOTATE_TOKEN），配置了就强制校验。
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 export const name = 'tk-annotate-bridge';
 
 /** 依赖的宿主服务。tools 是可选的，单独用 ctx.get 取。 */
-export const inject = ['webServer', 'llm', 'attachments'];
+export const inject = ['webServer', 'llm', 'attachments', 'agents'];
 
 const PREFIX = '/tk-annotate';
 const MAX_BODY_BYTES = 96 * 1024 * 1024;
@@ -218,9 +220,138 @@ export function apply(ctx, config = {}) {
     }
   }
 
+  function lastAssistantText(messages) {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (message?.role !== 'assistant') continue;
+      const content = Array.isArray(message.content) ? message.content : [];
+      const text = content
+        .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+        .map((block) => block.text)
+        .join('')
+        .trim();
+      if (text !== '') return text;
+    }
+    return '';
+  }
+
+  /**
+   * 用完即删：agent 模式必然产生一个会话目录（宿主建的，不是我们建的），
+   * 但用户要求「打完标就删掉」，所以这一轮结束立刻抹掉。
+   * 只删自己这一轮命名的目录，不碰任何其他会话。
+   */
+  function discardSession(sessionId) {
+    if (typeof sessionId !== 'string' || sessionId === '') return;
+    const root = join(homedir(), '.dsh', 'sessions');
+    if (!existsSync(root)) return;
+    let buckets = [];
+    try {
+      buckets = readdirSync(root, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => join(root, entry.name));
+    } catch {
+      return;
+    }
+    for (const bucket of buckets) {
+      const target = join(bucket, sessionId);
+      if (!existsSync(target)) continue;
+      try {
+        rmSync(target, { recursive: true, force: true });
+      } catch {
+        /* 删不掉就留着，不影响本轮结果 */
+      }
+    }
+  }
+
+  /** agent 模式：一个真实 DSH agent 跑完一轮，系统提示词与工具链都由宿主提供。 */
+  async function runThroughAgent(res, options) {
+    const { createUserMessage } = await llmApi();
+    const effort = String(options.body.reasoningEffort ?? '').trim();
+    const maxTokens = Number(options.body.maxTokens);
+    const sessionId = `tk-annotate-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+    res.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store',
+      connection: 'keep-alive',
+    });
+
+    let handle;
+    let debug = {};
+    try {
+      debug = {
+        hasAgents: typeof ctx.agents,
+        hasCreate: typeof ctx.agents?.create,
+        hasCreateAgent: typeof ctx.agents?.createAgent,
+      };
+      handle = await ctx.agents.create({
+        sessionId,
+        agentOptions: {
+          provider: options.provider,
+          model: options.model,
+          ...(effort !== '' ? { reasoningEffort: effort } : {}),
+          ...(Number.isFinite(maxTokens) && maxTokens > 0 ? { maxTokens: Math.trunc(maxTokens) } : {}),
+        },
+        setup: () => {},
+      });
+      const agent = handle?.agent ?? handle;
+      debug.handleKeys = Object.keys(handle ?? {});
+      debug.hasFollowup = typeof agent?.followup;
+      debug.hasWhenIdle = typeof agent?.whenIdle;
+      debug.hasSession = typeof agent?.session;
+      debug.status = agent?.status;
+      agent.followup(createUserMessage({
+        content: buildContent(options.prompt, options.refs),
+        source: { kind: 'user' },
+      }));
+      debug.statusAfterFollowup = agent?.status;
+      await agent.whenIdle();
+      debug.statusAfterIdle = agent?.status;
+      const derived = agent.session.deriveMessages();
+      debug.eventTypes = agent.session.snapshotEvents().map((event) => event?.type ?? '?');
+      debug.lastEvents = agent.session.snapshotEvents().slice(-4).map((event) => JSON.stringify(event).slice(0, 400));
+      const text = lastAssistantText(derived);
+      if (options.body?.debug === true) {
+        const systemMessage = derived.find((message) => message?.role === 'system');
+        const systemText = Array.isArray(systemMessage?.content)
+          ? systemMessage.content.filter((block) => block?.type === 'text').map((block) => block.text).join('')
+          : '';
+        debug.systemChars = systemText.length;
+        debug.systemHead = systemText.slice(0, 600);
+        debug.purgeMarkers = {
+          intro: systemText.includes('operator-authorized for local security research'),
+          deliverable: systemText.includes('start with the deliverable'),
+          noRefusal: systemText.includes('Do not soft-refuse or hard-refuse'),
+        };
+      }
+      if (text === '') {
+        const shape = derived.map((message) => ({
+          role: message?.role ?? '?',
+          blocks: Array.isArray(message?.content)
+            ? message.content.map((block) => block?.type ?? '?')
+            : typeof message?.content,
+        }));
+        res.write(`data: ${JSON.stringify({ error: 'agent 未产出任何正文', shape, debug, sessionId })}\n\n`);
+      } else {
+        res.write(`data: ${JSON.stringify({ delta: text })}\n\n`);
+        res.write(`data: ${JSON.stringify({ done: true, chars: text.length, mode: 'agent', sessionId, ...(options.body?.debug === true ? { debug } : {}) })}\n\n`);
+      }
+      res.end();
+    } catch (error) {
+      res.write(`data: ${JSON.stringify({ error: `agent 执行失败：${String(error?.message ?? error)}` })}\n\n`);
+      res.end();
+    } finally {
+      try {
+        await handle?.dispose?.();
+      } catch {
+        /* 拆除失败不改变已经发出的结果 */
+      }
+      discardSession(sessionId);
+    }
+  }
+
   /** 单次打标：不建会话，直接一次 ctx.llm.stream。 */
-  async function handleRun(req, res) {
-    if (!admit(req, res)) return;
+  async function handleRun(req, res) {    if (!admit(req, res)) return;
     let body;
     try {
       body = await readJsonBody(req);
@@ -262,6 +393,13 @@ export function apply(ctx, config = {}) {
     }
 
     const { BlockAssembler, createSystemMessage, createUserMessage } = await llmApi();
+
+    // agent 模式：驱动一个真正的 DSH agent（系统提示词来自被 purge 打过补丁的
+    // 提示词层，工具来自已加载插件），而不是自己拼 system 去调 ctx.llm。
+    if (String(body.mode ?? '') === 'agent') {
+      await runThroughAgent(res, { provider, model, prompt: String(body.prompt ?? ''), refs, body });
+      return;
+    }
     const messages = [];
     const system = String(body.system ?? '');
     if (system !== '') messages.push(createSystemMessage(system));
