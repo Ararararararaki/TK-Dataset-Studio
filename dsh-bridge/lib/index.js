@@ -110,6 +110,37 @@ export function apply(ctx, config = {}) {
       sendJson(res, 403, { error: '只接受本机回环地址的请求' });
       return false;
     }
+    // 浏览器驱动攻击：本机任意网页都能向 127.0.0.1 发「简单请求」，
+    // 所以逐项挡掉跨站形态，而不是只靠 socket 的来源地址。
+    const host = String(req.headers.host ?? '');
+    if (host !== '') {
+      const name = host.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
+      if (name !== '127.0.0.1' && name !== 'localhost' && name !== '::1') {
+        sendJson(res, 403, { error: 'Host 必须是本机回环地址' });
+        return false;
+      }
+    }
+    const origin = String(req.headers.origin ?? '');
+    if (origin !== '') {
+      let originHost = '';
+      try {
+        originHost = new URL(origin).hostname.replace(/^\[|\]$/g, '').toLowerCase();
+      } catch {
+        originHost = '';
+      }
+      if (originHost !== '127.0.0.1' && originHost !== 'localhost' && originHost !== '::1') {
+        sendJson(res, 403, { error: '不接受跨站来源的请求' });
+        return false;
+      }
+    }
+    if ((req.method ?? 'GET').toUpperCase() === 'POST') {
+      const type = String(req.headers['content-type'] ?? '').toLowerCase();
+      // 强制 JSON：跨站要发 application/json 必须过 preflight，而 preflight 会带 Origin 被上面挡掉。
+      if (!type.startsWith('application/json')) {
+        sendJson(res, 415, { error: '请求体必须是 application/json' });
+        return false;
+      }
+    }
     if (sharedToken !== '') {
       const given = String(req.headers['x-tk-token'] ?? '');
       if (given !== sharedToken) {

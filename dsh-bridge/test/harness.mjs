@@ -153,18 +153,45 @@ async function main() {
   check('没有 sessionId —— 无会话', call.sessionId === undefined && call.purpose === undefined);
 
   // 3) 缺少 provider/model 要 400
-  const badRun = await fetch(`${base}/tk-annotate/run`, { method: 'POST', body: JSON.stringify({ prompt: 'x' }) });
+  const badRun = await fetch(`${base}/tk-annotate/run`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: 'x' }) });
   check('缺 provider/model 返回 400', badRun.status === 400);
 
   // 4) tool 调用
   const toolResponse = await (await fetch(`${base}/tk-annotate/tool`, {
     method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ name: 'purge_status', arguments: { verbose: true } }),
   })).json();
   check('调用 purge_status 成功', toolResponse.ok === true && toolResponse.value.tool === 'purge_status' && toolResponse.value.received.verbose === true, JSON.stringify(toolResponse.value));
 
-  const unknownTool = await fetch(`${base}/tk-annotate/tool`, { method: 'POST', body: JSON.stringify({ name: 'nope' }) });
+  const unknownTool = await fetch(`${base}/tk-annotate/tool`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'nope' }) });
   check('未知工具返回 404', unknownTool.status === 404);
+
+  // 4b) 浏览器驱动攻击面：跨站来源 / 非 JSON 请求体 / 伪造 Host 都必须被挡
+  const crossOrigin = await fetch(`${base}/tk-annotate/tool`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
+    body: JSON.stringify({ name: 'purge_status', arguments: {} }),
+  });
+  check('跨站 Origin 被拒', crossOrigin.status === 403, String(crossOrigin.status));
+
+  const simpleType = await fetch(`${base}/tk-annotate/tool`, {
+    method: 'POST',
+    headers: { 'content-type': 'text/plain' },
+    body: JSON.stringify({ name: 'purge_status', arguments: {} }),
+  });
+  check('非 JSON 请求体被拒', simpleType.status === 415, String(simpleType.status));
+
+  // fetch 不允许改 Host，用 node:http 直发
+  const badHostStatus = await new Promise((resolve) => {
+    const request = http.request(
+      { host: '127.0.0.1', port: webServer.port, path: '/tk-annotate/status', method: 'GET', headers: { host: 'evil.example' } },
+      (response) => { response.resume(); resolve(response.statusCode); },
+    );
+    request.on('error', () => resolve(0));
+    request.end();
+  });
+  check('伪造 Host 被拒', badHostStatus === 403, String(badHostStatus));
 
   // 5) token 校验
   const guarded = fakeCtx({ llm, attachments, tools });
@@ -185,6 +212,7 @@ async function main() {
   const failingServer = await serve(failing.webServer);
   const failText = await (await fetch(`http://127.0.0.1:${failing.webServer.port}/tk-annotate/run`, {
     method: 'POST',
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ provider: 'stub', model: 'stub-model', prompt: 'x' }),
   })).text();
   check('上游失败给 error 帧', failText.includes('"error"') && failText.includes('upstream 503'));

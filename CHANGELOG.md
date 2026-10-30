@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2 · 2026-10-30
+
+- Close the browser-driven attack surface on the bridge (review finding B1). The loopback check alone is not enough: any page open on this machine can send a "simple request" to `127.0.0.1`. The endpoint now also rejects a cross-site `Origin`, rejects a non-loopback `Host`, and requires `content-type: application/json` on POST — a cross-site JSON POST must pass a preflight, and the preflight carries the `Origin` that is refused. Plain `fetch`/`httpx` clients are unaffected.
+- Extend the offline harness to 21 checks, including the three new refusals (cross-site `Origin` → 403, `text/plain` body → 415, forged `Host` → 403); the `Host` check goes through `node:http` because `fetch` refuses to override that header.
+
 ## 0.2.1 · 2026-10-30
 
 - Fix the offline harness expectation for the route count: the plugin registers four routes (`/status`, `/run`, `/models`, `/tool`), so the assertion is 4 and the run is 18/18 again. Sync the same wording in `docs/VERIFICATION.md`, `CONTEXT.md` and the changelog.
