@@ -122,6 +122,7 @@ node scripts/packaged-e2e.cjs
 - 原生 DSH 插件由 Host 管理；只观测到安装清单不能证明某个插件在单次会话里运行。
 - **本机发行包没有 CUDA provider**：`runtime/python.exe` 的 onnxruntime 1.23.2 只报 `AzureExecutionProvider`/`CPUExecutionProvider`，选 `device=cuda` 直接报「独立运行时未安装 CUDA provider」。库里历史记录的 `raw.provider` 也全是 `CPUExecutionProvider`。因此 GPU 并发收益在本机无法测量；要用 GPU 需另装与 CUDA/cuDNN 匹配的 onnxruntime-gpu，本应用不猜版本。
 - 端口桥接的 LLM 描述路线受上游内容政策限制：实测露骨内容图片被 opencode-go 明确拒绝、被 workbuddy 网关过滤成「image unavailable」。本应用**不绕过内容拒绝**（不改提示词、不诱导、不换壳重试），此类数据集只能用本地 WD14 标签。
-- LLM 并发在原生 Agent 通道会同时占用多个会话；默认 2 只在 API/桥接通道有实测依据。
+- LLM 并发在原生 Agent 通道会同时占用多个会话；默认 2 只在 API/桥接通道有实测依据。界面与 `backend/jobs.py` 的兜底值已统一为 2/2（此前代码兜底是 1、文档写 2，属不一致，本轮修正）；3/6 这类更高默认值没有实测支撑，未采用。
+- 桥接的 agent 模式（`payload.mode = "agent"`）必然让宿主建一个会话目录。插件在每轮结束调用 `discardSession()` 只删本轮自己命名的 `~/.dsh/sessions/<bucket>/tk-annotate-*` 目录，不匹配其他会话；但它是 `rmSync(recursive, force)` 且失败被静默吞掉，删不掉时会话会留下且没有提示。离线 harness 只断言请求不带 `sessionId`（证明普通 run 无会话），不覆盖删目录行为；本轮没有在真实宿主上逐轮核对 `~/.dsh/sessions` 的增删。
 
 依赖下载与构建只使用显式代理；原生回环 MCP 和 Agent RPC 直连。没有因代理失败切换外网直连。

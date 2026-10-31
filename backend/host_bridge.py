@@ -79,6 +79,7 @@ class Bridge:
                    'images': [{'mediaType': image['mediaType'], 'data': image['data'], 'name': row.get('relative') or ''}],
                    'maxTokens': int(config.get('max_tokens', 8192))}
         if effort: payload['reasoningEffort'] = effort
+        if config.get('mode'): payload['mode'] = str(config['mode'])
         meta = {'transport': 'bridge', 'requestId': uuid.uuid4().hex, 'provider': provider, 'model': model,
                 'status': 'running', 'runId': '', 'host_url': base}
         await progress(meta)

@@ -116,8 +116,8 @@ class Jobs:
     async def run(self,jid):
         job=self.store.query('SELECT * FROM jobs WHERE id=?',(jid,))[0];config=json.loads(job['config']);preset=config['preset']
         concurrency=config.get('concurrency') or {}
-        wd14=max(1,min(8,int(concurrency.get('wd14',1) or 1)))
-        llm=max(1,min(8,int(concurrency.get('llm',1) or 1)))
+        wd14=max(1,min(8,int(concurrency.get('wd14',2) or 2)))
+        llm=max(1,min(8,int(concurrency.get('llm',2) or 2)))
         if getattr(self.worker,'configure',None):self.worker.configure(wd14)
         self.llm_slot=asyncio.Semaphore(llm)
         slots=asyncio.Semaphore(max(wd14,llm))

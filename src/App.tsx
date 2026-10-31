@@ -348,11 +348,11 @@ export default function App() {
         );
     },
   });
-  const modelGroups = catalog?.capabilities.models.groups || [];
+  const modelGroups = catalog?.capabilities?.models?.groups || [];
   const route = boot?.settings.dsh;
   const selectedChannelLabel=preset?.pipeline==="wd14"?"WD14 本地":route?.transport==="native"?"DSH Agent":"API 直连";
   const channelLabel=job?.state==="running"&&job.config?(job.config.preset.pipeline==="wd14"?"WD14 本地":job.config.dsh?.transport==="api"?"API 直连":"DSH Agent"):selectedChannelLabel;
-  const defaultRoute = catalog?.capabilities.models.default;
+  const defaultRoute = catalog?.capabilities?.models?.default;
   const effectiveProvider = route?.provider || defaultRoute?.provider;
   const effectiveModel = route?.model || defaultRoute?.model;
   const selectedModel = modelGroups

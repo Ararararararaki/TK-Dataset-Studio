@@ -103,9 +103,19 @@ class AnnotationClient:
         config=self.connections.settings()
         try:value=await self.bridge.status(config)
         except NativeFailure as e:return {'connected':False,'transport':'bridge','error':str(e),'plugins':[],'providers':[],'tools':{'available':False,'names':[]}}
+        dsh=config.get('dsh') or {}
+        providers=value.get('providers') or []
+        # 前端按 capabilities.models 取默认路由与分组；桥接没有 DSH 的 list_capabilities，
+        # 这里用桥接自报的 provider 列表合成同样结构，模型细节由 dsh.models 单独取。
+        capabilities={'models':{'default':{'provider':dsh.get('provider') or '','model':dsh.get('model') or ''},
+                                'groups':[{'id':p.get('id',''),'label':p.get('name') or p.get('id',''),
+                                           'models':[{'id':m.get('id'),'name':m.get('name') or m.get('id')}
+                                                     for m in (p.get('models') or []) if m.get('id')]}
+                                          for p in providers if p.get('id')]}}
         return {'connected':True,'transport':'bridge','host_url':config.get('bridge_url') or 'http://127.0.0.1:3080',
-                'port':value.get('port'),'providers':value.get('providers') or [],'tools':value.get('tools') or {'available':False,'names':[]},
-                'purge':bool(value.get('purge')),'token_required':bool(value.get('tokenRequired')),'plugins':[]}
+                'port':value.get('port'),'providers':providers,'tools':value.get('tools') or {'available':False,'names':[]},
+                'purge':bool(value.get('purge')),'token_required':bool(value.get('tokenRequired')),'plugins':[],
+                'workspaces':[],'capabilities':capabilities}
     async def bridge_models(self,provider):
         return await self.bridge.models(self.connections.settings(),provider)
     async def bridge_tool(self,name,arguments=None):

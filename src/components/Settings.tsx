@@ -460,13 +460,13 @@ export default function Settings({
                     type="number"
                     min={1}
                     max={8}
-                    value={config.concurrency?.wd14 ?? 1}
+                    value={config.concurrency?.wd14 ?? 2}
                     onChange={(e) =>
                       setConfig({
                         ...config,
                         concurrency: {
                           wd14: Number(e.target.value),
-                          llm: config.concurrency?.llm ?? 1,
+                          llm: config.concurrency?.llm ?? 2,
                         },
                       })
                     }
@@ -479,12 +479,12 @@ export default function Settings({
                     type="number"
                     min={1}
                     max={8}
-                    value={config.concurrency?.llm ?? 1}
+                    value={config.concurrency?.llm ?? 2}
                     onChange={(e) =>
                       setConfig({
                         ...config,
                         concurrency: {
-                          wd14: config.concurrency?.wd14 ?? 1,
+                          wd14: config.concurrency?.wd14 ?? 2,
                           llm: Number(e.target.value),
                         },
                       })

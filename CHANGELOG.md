@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.3 · 2026-10-31
+
+- Add an **agent mode** to the bridge: `POST /tk-annotate/run` with `mode: "agent"` runs one call through the host's real agent, so the host supplies the system prompt and the tool chain instead of a bare model request. The plugin now declares the `agents` service it injects. Plain mode is unchanged and still creates no session.
+- Discard the session that agent mode necessarily creates. At the end of each round the plugin removes only the `~/.dsh/sessions/<bucket>/tk-annotate-*` directory it named for that round, matching no other session. This is `rmSync({recursive:true, force:true})` and a failed removal is swallowed, so a directory that cannot be deleted stays on disk without a warning. Documented in README and `docs/VERIFICATION.md`; the offline harness covers "no `sessionId` on a plain run", not the removal itself.
+- Extract the last assistant text block from the host's message list so a multi-block agent reply yields the prose that reaches the annotation, not the whole transcript.
+- Synthesize `capabilities.models` and `workspaces` in the bridge transport's connection status. The settings page reads the same shape from the bridge as from a DSH static connection, so a bridge profile no longer breaks on a missing `capabilities`, and `App.tsx` guards those reads with optional chaining.
+- Pass `mode` through to the bridge payload instead of dropping it in the transport.
+- Unify the concurrency defaults to **2/2** across `backend/jobs.py`, both settings inputs and the docs. The documentation already claimed 2 and carried the measurement behind it (four images with `wd14=2`/`llm=2` in flight at once, beating the serial baseline), while the code fallback was still 1 and one settings field defaulted differently again. All three now read 2. Higher defaults such as 3/6 have no measurement and were not adopted.
+
 ## 0.2.2 · 2026-10-30
 
 - Close the browser-driven attack surface on the bridge (review finding B1). The loopback check alone is not enough: any page open on this machine can send a "simple request" to `127.0.0.1`. The endpoint now also rejects a cross-site `Origin`, rejects a non-loopback `Host`, and requires `content-type: application/json` on POST — a cross-site JSON POST must pass a preflight, and the preflight carries the `Origin` that is refused. Plain `fetch`/`httpx` clients are unaffected.
