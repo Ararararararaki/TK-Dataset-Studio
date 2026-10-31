@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.4 · 2026-10-31
+
+- Add **in-app updates**. The version label at the bottom of the sidebar is now a button that opens an update panel: it checks GitHub Releases, downloads the portable exe with resume support and a SHA-256 check against the published `SHA256SUMS.txt`, then swaps the running program in place and relaunches. Both the portable build and the `win-unpacked` executable update this way: Windows allows renaming a running program, so the old binary is renamed aside and the new one takes its place, with a detached script waiting for the old process to release the single-instance lock before relaunching. Requests go through Electron's `net` stack so the system proxy applies. A failed swap restores the previous exe, and datasets, models and annotations live in the user data directory, which an update never touches. `electron/updater.cjs` is plain Node, so version comparison, release parsing, checksum parsing, the detached swap script and the rollback path are unit-tested in `tests/updater.test.cjs` without launching Electron.
+- Fix the version label. `backend/server.py` hard-coded `0.1.4` inside `bootstrap()`, so every build since 0.1.4 reported the wrong version, including the published 0.2.3. The main process now reads `package.json` and injects `TKDS_VERSION`, with a file-based fallback when the variable is absent.
+- Fix images silently dropped during import. A file rejected by `PIL.Image.open()` produced an `import-warning` event that no renderer code consumed, and the progress counter counted attempts rather than successes, so the banner claimed "scanned N images" while the list stayed empty. The done event now carries `imported`, `failed` and up to five `samples`, and the banner reports the failure count plus the first reason.
+- Add a remove button to every dataset row in the sidebar. It removes only the index; the original images and their `.txt` sidecars stay on disk. The action existed in the workspace footer since the first release but was effectively undiscoverable from the sidebar.
+
 ## 0.2.3 · 2026-10-31
 
 - Add an **agent mode** to the bridge: `POST /tk-annotate/run` with `mode: "agent"` runs one call through the host's real agent, so the host supplies the system prompt and the tool chain instead of a bare model request. The plugin now declares the `agents` service it injects. Plain mode is unchanged and still creates no session.

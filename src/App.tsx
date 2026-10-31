@@ -59,6 +59,7 @@ import {
 import { PanelGroup, Panel, Separator } from "./components/Resizable";
 import ImageEntry from "./components/ImageEntry";
 import SettingsDialog from "./components/Settings";
+import { UpdateDialog } from "./components/UpdateDialog";
 import { flushDrafts } from "./drafts";
 import ImagePreview from "./components/ImagePreview";
 import { useBrowserGestures } from "./useBrowserGestures";
@@ -79,9 +80,31 @@ export default function App() {
   const [assistant, setAssistant] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [updateOpen, setUpdateOpen] = useState(false);
+  const [updateHint, setUpdateHint] = useState("");
   const annotationHover = useAnnotationHover();
   const hideAnnotationHover = annotationHover.hide;
-  useEffect(() => hideAnnotationHover(), [view, dataset, query, filter, settingsOpen, hideAnnotationHover]);
+  useEffect(() => hideAnnotationHover(), [view, dataset, query, filter, settingsOpen, updateOpen, hideAnnotationHover]);
+  useEffect(() => {
+    // The main process owns the update lifecycle; the renderer only mirrors the
+    // latest state so the sidebar can advertise a pending version.
+    let live = true;
+    window.studio.update
+      ?.state()
+      .then((next) => {
+        if (!live) return;
+        if (next.status === "available") setUpdateHint(next.latest);
+      })
+      .catch(() => {});
+    const stop = window.studio.update?.onState((next) => {
+      if (!live) return;
+      setUpdateHint(next.status === "available" || next.status === "ready" ? next.latest : "");
+    });
+    return () => {
+      live = false;
+      stop?.();
+    };
+  }, []);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
@@ -235,10 +258,27 @@ export default function App() {
         setStage(e.stage || "");
         setTicks((t) => ({ ...t, [id]: (t[id] || 0) + 1 }));
       }
-      if (e.kind === "import-progress")
-        setNotice(
-          `正在扫描 ${e.count || 0} 张图片${e.done ? " · 已完成" : ""}`,
-        );
+      if (e.kind === "import-progress") {
+        const failed = e.failed || 0;
+        const sample = e.samples?.[0];
+        if (e.done && failed > 0) {
+          const name = sample?.path
+            ? sample.path.split(/[\\/]/).pop() || ""
+            : "";
+          const reason = sample?.error
+            ? `：${sample.error
+                .replace(/'[^']*'/g, "")
+                .replace(/\s+/g, " ")
+                .trim()
+                .slice(0, 70)}`
+            : "";
+          setNotice(
+            `扫描 ${e.count || 0} 张，成功 ${e.imported || 0} 张，${failed} 张无法读取${name ? `（首例 ${name}${reason}）` : ""}`,
+          );
+        } else {
+          setNotice(`正在扫描 ${e.count || 0} 张图片${e.done ? " · 已完成" : ""}`);
+        }
+      }
       if (e.kind === "download")
         setNotice(
           e.done
@@ -445,9 +485,22 @@ export default function App() {
       await api(method, params);
       await refresh();
       await loadItems();
+      return true;
     } catch (e) {
       report(e);
+      return false;
     }
+  }
+  function removeDataset(id: string, name: string) {
+    if (
+      !window.confirm(
+        `从工作区移除「${name}」？\n\n只移除索引，原图和 TXT 文件都会保留在磁盘上。`,
+      )
+    )
+      return;
+    void action("datasets.remove", { id }).then((ok) => {
+      if (ok && dataset === id) setDataset("");
+    });
   }
   async function ask() {
     const id = selection.values().next().value || items[0]?.id;
@@ -475,7 +528,7 @@ export default function App() {
         return;
       }
       const target = e.target as HTMLElement;
-      if (preview || settingsOpen || confirm) return;
+      if (preview || settingsOpen || updateOpen || confirm) return;
       if (["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
       if ((e.ctrlKey || e.metaKey) && e.key === "a") {
         e.preventDefault();
@@ -504,7 +557,7 @@ export default function App() {
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [items, rows, view, gridColumns, preview, settingsOpen, confirm]);
+  }, [items, rows, view, gridColumns, preview, settingsOpen, updateOpen, confirm]);
   if (!boot)
     return (
       <div className="boot-screen">
@@ -619,29 +672,41 @@ export default function App() {
             </div>
             <nav className="datasets">
               {boot.datasets.map((d) => (
-                <button
-                  className={`dataset-item ${dataset === d.id ? "active" : ""}`}
+                <div
+                  className={`dataset-row ${dataset === d.id ? "active" : ""}`}
                   key={d.id}
-                  title={d.path}
-                  onClick={() => {
-                    setDataset(d.id);
-                    setQuery("");
-                    setFilter("all");
-                  }}
                 >
-                  <Folder size={17} />
-                  <span>
-                    <strong>{d.name}</strong>
-                    <small>
-                      {d.online
-                        ? `${d.completed || 0} / ${d.count} 已标注`
-                        : "目录未连接"}
-                    </small>
-                  </span>
-                  {d.failed > 0 && (
-                    <span className="count-error">{d.failed}</span>
-                  )}
-                </button>
+                  <button
+                    className="dataset-item"
+                    title={d.path}
+                    onClick={() => {
+                      setDataset(d.id);
+                      setQuery("");
+                      setFilter("all");
+                    }}
+                  >
+                    <Folder size={17} />
+                    <span>
+                      <strong>{d.name}</strong>
+                      <small>
+                        {d.online
+                          ? `${d.completed || 0} / ${d.count} 已标注`
+                          : "目录未连接"}
+                      </small>
+                    </span>
+                    {d.failed > 0 && (
+                      <span className="count-error">{d.failed}</span>
+                    )}
+                  </button>
+                  <button
+                    className="dataset-remove"
+                    title="从工作区移除（保留原图与 TXT）"
+                    aria-label={`移除数据集 ${d.name}`}
+                    onClick={() => removeDataset(d.id, d.name)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               ))}
               {!boot.datasets.length && (
                 <p className="sidebar-empty">
@@ -677,9 +742,18 @@ export default function App() {
                   <RefreshCw size={12} />
                 </button>
               </div>
-              <span className="app-version">
+              <button
+                className={`app-version${updateHint ? " has-update" : ""}`}
+                title={
+                  updateHint
+                    ? `有新版本 ${updateHint}，点击查看`
+                    : "点击检查更新"
+                }
+                onClick={() => setUpdateOpen(true)}
+              >
                 TK Dataset Studio {boot.version}
-              </span>
+                {updateHint ? <i className="update-dot" aria-hidden /> : null}
+              </button>
             </div>
           </aside>
         </Panel>
@@ -1635,6 +1709,9 @@ export default function App() {
           <h2>松开以导入图片</h2>
           <p>支持整个文件夹，自动扫描子目录</p>
         </div>
+      )}
+      {updateOpen && (
+        <UpdateDialog onClose={() => setUpdateOpen(false)} />
       )}
       {settingsOpen && (
         <SettingsDialog

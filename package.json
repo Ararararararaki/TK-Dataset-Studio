@@ -1,6 +1,6 @@
 {
   "name": "tk-dataset-studio",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "Local-first WD14, API and native DSH dataset annotation desktop",
   "author": "TK Dataset Studio contributors",

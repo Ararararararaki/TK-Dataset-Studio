@@ -26,4 +26,17 @@ contextBridge.exposeInMainWorld("studio", {
   reveal: (id) => ipcRenderer.invoke("studio:reveal", id),
   startDrag: (id) => ipcRenderer.send("studio:drag", id),
   window: (action) => ipcRenderer.send("studio:window", action),
+  update: {
+    state: () => ipcRenderer.invoke("studio:update", "state"),
+    check: (force = false) => ipcRenderer.invoke("studio:update", "check", force),
+    download: () => ipcRenderer.invoke("studio:update", "download"),
+    apply: () => ipcRenderer.invoke("studio:update", "apply"),
+    skip: () => ipcRenderer.invoke("studio:update", "skip"),
+    cancel: () => ipcRenderer.invoke("studio:update", "cancel"),
+    onState: (callback) => {
+      const handler = (_, state) => callback(state);
+      ipcRenderer.on("studio:update", handler);
+      return () => ipcRenderer.removeListener("studio:update", handler);
+    },
+  },
 });

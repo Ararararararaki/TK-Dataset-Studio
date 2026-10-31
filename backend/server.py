@@ -16,6 +16,18 @@ DEFAULTS={'model_dirs':[],'wd14':{'model':'','device':'cpu','threshold':.6,'char
  'concurrency':{'wd14':2,'llm':2},'overwrite':False,'backup_before_overwrite':True,'output_warning':12000,'proxy':'http://127.0.0.1:7890','skill_ids':[],
  'lookup_characters':True,'character_snapshot':'','character_update':True,'lookup_missing':True,'agent_access':'read'}
 
+def app_version():
+    '''Version shown in the UI footer.
+
+    The Electron host injects TKDS_VERSION from the packaged package.json; when
+    the backend is started on its own (tests, CLI) fall back to the checkout
+    manifest so the two paths still agree.
+    '''
+    injected=os.environ.get('TKDS_VERSION')
+    if injected:return injected
+    try:return json.loads((Path(__file__).resolve().parent.parent/'package.json').read_text(encoding='utf-8'))['version']
+    except Exception:return '0.0.0'
+
 class Server:
     def __init__(self,root):
         self.store=Store(root);self.output_lock=threading.Lock();self.native=Native(root,lambda:self.settings()['dsh'])
@@ -98,7 +110,7 @@ class Server:
     def bootstrap(self):
         return {'datasets':self.store.datasets(),'presets':self.presets(),'settings':self.settings(),
             'models':models(self.settings()['model_dirs']),'skills':self.skills(),'jobs':self.jobs.snapshot(),
-            'ui':self.store.get_setting('ui',{}),'data_root':str(self.store.root),'agent':self.agent.info(),'version':'0.1.4'}
+            'ui':self.store.get_setting('ui',{}),'data_root':str(self.store.root),'agent':self.agent.info(),'version':app_version()}
 
     async def dispatch(self,method,p):
         if method=='bootstrap':return self.bootstrap()

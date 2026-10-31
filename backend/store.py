@@ -85,6 +85,8 @@ class Store:
                         p = Path(root, name)
                         if p.suffix.lower() in EXTENSIONS and not p.is_symlink(): yield p
             seen = 0
+            imported = 0
+            failures = []
             for path in candidates():
                 try:
                     stat = path.stat(); text_path = path.with_suffix('.txt'); sha = digest(text_path)
@@ -104,11 +106,13 @@ class Store:
                         if sha != old['sidecar_sha']:
                             self.execute('INSERT INTO revisions(image_id,text,format,reason,created) VALUES(?,?,?,?,?)', (old['id'],old['text'],old['format'],'外部文件变动',time.time()))
                             self.execute("UPDATE images SET text=?,sidecar_sha=?,revision=revision+1,status=?,error='' WHERE id=?", (text,sha,'external' if sha else 'pending',old['id']))
+                    imported += 1
                 except (OSError,ValueError,Image.DecompressionBombError) as e:
+                    if len(failures) < 5: failures.append({'path':str(path),'error':str(e)})
                     if progress: progress({'kind':'import-warning','path':str(path),'error':str(e)})
                 seen += 1
                 if progress and seen % 50 == 0: progress({'kind':'import-progress','dataset_id':did,'count':seen})
-            if progress: progress({'kind':'import-progress','dataset_id':did,'count':seen,'done':True})
+            if progress: progress({'kind':'import-progress','dataset_id':did,'count':seen,'imported':imported,'failed':seen-imported,'samples':failures,'done':True})
         return dataset_ids
 
     def list_images(self, dataset_id, search='', status='all'):

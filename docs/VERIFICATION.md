@@ -2,6 +2,23 @@
 
 所有实测都在新项目中进行。原 Toolkit 仓库和 ComfyUI 运行目录仅作只读参考；没有重新启动或替换用户宿主。测试图片为两张复杂、穿着完整的可爱二次元构图的独立副本，不是单色合成图。
 
+## 0.2.4 内置更新、版本号与导入诊断
+
+`electron/updater.cjs` 是纯 Node 模块（只 require `electron` 的 `app` 与 `net`），所以版本比较、发布解析、校验和解析、替换与回滚都能在不起 Electron 的情况下断言。
+
+| 检查 | 实测结果 | 范围与说明 |
+| --- | --- | --- |
+| 更新器单元测试 | `node --test tests/updater.test.cjs` 14/14 通过（全库 `npm test` 14/14） | 版本比较（含预发布低于同名正式版）、`parseVersion`、`parseRelease`（含无 exe 资产）、`parseSums`（GNU 与 Windows 两种写法）、swap 脚本内容与纯 ASCII + CRLF、非便携未打包拒绝猜目标、便携版替换成功（`.old` 备份 + 下次启动清理）、便携版失败回滚（`.old` 是非空目录导致改名失败时原 exe 未被改动）、无锁目标替换并重启（标记文件证明新程序真的被启动）、运行中程序被改名替换 |
+| 真实 GitHub 检查 | 隔离实例经 CDP 调 `window.studio.update.check(true)`，651 ms 返回 `status=current`、`current=0.2.3`、`latest=0.2.3`、`pageUrl=.../releases/tag/v0.2.3` | 真实出网请求走 Electron `net` 栈；断言的是状态与字段，不是下载速度 |
+| 更新面板界面 | 截图确认：标题「软件更新」、当前/最新版本对比、「已是最新」徽章、发布说明、上次检查时间、检查更新与发布页按钮、数据不受影响的说明 | 只验证渲染与文案，未做无障碍或键盘遍历检查 |
+| 运行中程序的替换 | 复制 `ping.exe` 为 `app.exe` 并运行，脚本把旧文件改名成 `.old`、`whoami.exe` 就位；`.old` 的 SHA-256 等于原 `ping.exe`，目标等于 `whoami.exe` | 结论：Windows 允许重命名运行中的程序、只禁止删除，所以替换不必等进程退出；脚本仍保留 60 次改名重试作为兜底 |
+| 版本号注入 | `TKDS_VERSION=0.2.3` 时 `bootstrap()` 返回 0.2.3；不设该变量时从 `package.json` 兜底同样返回 0.2.3；隔离实例截图底部显示 `TK Dataset Studio 0.2.3` | 修复前 `backend/server.py` 把 `0.1.4` 写死在 `bootstrap()` 里，0.1.4 之后每次构建都报错版本，已发布的 0.2.3 也带着这个错误 |
+| 导入失败可见 | `tests/test_import_diagnostics.py` 3 项（单文件失败计数、整目录全坏、样例上限 5 条）；隔离实例实测横幅文案「扫描 4 张，成功 2 张，2 张无法读取（首例 坏图0.png：cannot identify image file）」，好图正常入库 | 只让失败原因可见，不等于让打不开的图能读；具体为何打不开要看用户机器上的实际提示 |
+| 左栏移除入口 | 隔离实例截图确认数据集条目右侧的垃圾桶按钮，未遮挡「N / M 已标注」计数；`tests/datasets.test.cjs` 2 项断言只删索引、原图与 `.txt` 仍在、重复导入不产生孤儿行 | 界面只做视觉确认，未做键盘焦点遍历 |
+| 全量回归 | Python 82/82（`runtime/python.exe -m unittest discover -s tests`）；`npm run build` 通过（2047 modules，CSS 32.67 kB / JS 391.03 kB） | 桥接离线 harness 本轮未重跑，沿用 0.2.2 的 21/21 |
+
+未验证：没有在干净环境安装 0.2.4 验证从 0.2.3 升级的迁移；没有用「真实存在更高版本」走完下载→校验→替换→重启的整条链路（发布前没有更高版本可测，下载与校验只由单元测试和真实 release 元数据解析覆盖）。
+
 ## caption 专用指导词与 WD14 标签强度
 
 本轮两处改动：`backend/presets.py` 新增 `CAPTION` 指导文本，`build_task()` 在 `fmt == 'caption'` 时用它替代通用 `FAITHFUL`；`backend/server.py` 的 `DEFAULTS` 把 `wd14.threshold` 从 `.35` 改为 `.6`，`src/components/Settings.tsx` 在「已发现 N 套模型」之前加「标签强度」数字输入（0.05–0.95，步进 0.05）。

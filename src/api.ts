@@ -139,6 +139,9 @@ export type StudioEvent = {
   total?: number;
   model?: string;
   done?: boolean;
+  imported?: number;
+  failed?: number;
+  samples?: { path: string; error: string }[];
 };
 type Model = {
   id: string;
@@ -172,6 +175,31 @@ export type Catalog = {
   };
   plugins: { name: string; version: string; status: string }[];
 };
+export type UpdateStatus =
+  | "idle"
+  | "checking"
+  | "current"
+  | "available"
+  | "skipped"
+  | "downloading"
+  | "ready"
+  | "applying"
+  | "error";
+
+export type UpdateState = {
+  status: UpdateStatus;
+  current: string;
+  latest: string;
+  notes: string;
+  pageUrl: string;
+  asset: { name: string; size: number; url: string } | null;
+  progress: { received: number; total: number; percent: number } | null;
+  error: string;
+  checkedAt: number;
+  skipped: string;
+  downloaded: { version: string; file: string; sha256: string; verified: boolean; size: number } | null;
+};
+
 declare global {
   interface Window {
     studio: {
@@ -185,6 +213,15 @@ declare global {
       reveal: (id: string) => Promise<void>;
       startDrag: (id: string) => void;
       window: (action: string) => void;
+      update: {
+        state: () => Promise<UpdateState>;
+        check: (force?: boolean) => Promise<UpdateState>;
+        download: () => Promise<UpdateState>;
+        apply: () => Promise<UpdateState>;
+        skip: () => Promise<UpdateState>;
+        cancel: () => Promise<UpdateState>;
+        onState: (callback: (state: UpdateState) => void) => () => void;
+      };
     };
   }
 }

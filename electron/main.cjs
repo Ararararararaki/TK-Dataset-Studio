@@ -13,6 +13,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { Bridge } = require("./bridge.cjs");
+const { UpdateManager } = require("./updater.cjs");
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "studio",
@@ -31,6 +32,7 @@ if (!app.requestSingleInstanceLock()) {
 }
 let win,
   bridge,
+  updater,
   quitting = false,
   allowExit = false;
 const allowed = new Set([
@@ -144,6 +146,41 @@ app.whenReady().then(async () => {
   win.webContents.on("will-navigate", (event, url) => {
     if (url !== win.webContents.getURL()) event.preventDefault();
   });
+  updater = new UpdateManager({ version: app.getVersion(), log: () => {} });
+  updater.on("state", (state) => {
+    if (win && !win.isDestroyed()) win.webContents.send("studio:update", state);
+  });
+  updater.on("restart", ({ executable, script, immediate }) => {
+    if (script) updater.launchSwap(script);
+    if (!immediate) {
+      allowExit = true;
+      app.quit();
+      return;
+    }
+    // Portable: the original exe is free, so relaunch it directly instead of
+    // app.relaunch() (which would re-open the decompressed copy in %TEMP%).
+    try {
+      require("node:child_process").spawn(executable, [], {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      }).unref();
+    } catch {
+      /* fall through to a normal relaunch */
+    }
+    allowExit = true;
+    app.quit();
+  });
+  ipcMain.handle("studio:update", async (e, action, arg) => {
+    trusted(e);
+    if (action === "state") return updater.snapshot();
+    if (action === "check") return updater.check({ force: Boolean(arg) });
+    if (action === "download") return updater.download();
+    if (action === "apply") return updater.apply();
+    if (action === "skip") return updater.skip();
+    if (action === "cancel") return updater.cancel();
+    throw new Error("未知更新操作");
+  });
   ipcMain.handle("studio:invoke", (e, method, params) => {
     trusted(e);
     if (!allowed.has(method)) throw new Error("未知操作");
@@ -226,6 +263,12 @@ app.whenReady().then(async () => {
         app.isPackaged ? "app.asar/dist/index.html" : "dist/index.html",
       ),
     );
+  // Background check after the window is up: a failure must never interrupt
+  // first paint or surface a dialog on launch.
+  if (app.isPackaged && !process.env.TKDS_NO_UPDATE_CHECK)
+    setTimeout(() => {
+      updater.check().catch(() => {});
+    }, 8000);
 });
 app.on("before-quit", (event) => {
   if (allowExit) return;

@@ -9,13 +9,26 @@ class Bridge {
     this.closed = false;
     fs.mkdirSync(data, { recursive: true });
     this.log = fs.openSync(path.join(data, "backend.log"), "a");
+    // The backend reports this in `bootstrap.version`; read it from the packaged
+    // manifest so the footer cannot drift away from package.json again.
+    let version = "0.0.0";
+    try {
+      version = JSON.parse(
+        fs.readFileSync(path.join(root, "package.json"), "utf8"),
+      ).version;
+    } catch {}
     this.child = spawn(
       path.join(root, "runtime", "python.exe"),
       ["-u", "-m", "backend.server"],
       {
         cwd: root,
         windowsHide: true,
-        env: { ...process.env, TKDS_DATA: data, PYTHONUTF8: "1" },
+        env: {
+          ...process.env,
+          TKDS_DATA: data,
+          TKDS_VERSION: version,
+          PYTHONUTF8: "1",
+        },
         stdio: ["pipe", "pipe", this.log],
       },
     );
