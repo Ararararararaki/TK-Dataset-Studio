@@ -79,9 +79,14 @@ app.whenReady().then(async () => {
     ? process.resourcesPath
     : path.resolve(__dirname, "..");
   const data = app.getPath("userData");
-  bridge = new Bridge(root, data, (event) => {
-    if (win && !win.isDestroyed()) win.webContents.send("studio:event", event);
-  });
+  bridge = new Bridge(
+    root,
+    data,
+    (event) => {
+      if (win && !win.isDestroyed()) win.webContents.send("studio:event", event);
+    },
+    { version: app.getVersion() },
+  );
   protocol.handle("studio", async (request) => {
     try {
       const url = new URL(request.url);

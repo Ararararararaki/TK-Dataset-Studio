@@ -3,20 +3,24 @@ const readline = require("node:readline");
 const fs = require("node:fs");
 const path = require("node:path");
 class Bridge {
-  constructor(root, data, onEvent) {
+  constructor(root, data, onEvent, options = {}) {
     this.pending = new Map();
     this.counter = 0;
     this.closed = false;
     fs.mkdirSync(data, { recursive: true });
     this.log = fs.openSync(path.join(data, "backend.log"), "a");
-    // The backend reports this in `bootstrap.version`; read it from the packaged
-    // manifest so the footer cannot drift away from package.json again.
-    let version = "0.0.0";
-    try {
-      version = JSON.parse(
-        fs.readFileSync(path.join(root, "package.json"), "utf8"),
-      ).version;
-    } catch {}
+    // The backend reports this in `bootstrap.version`. The caller passes the
+    // Electron app version because package.json lives inside app.asar and is not
+    // a file under `root` once packaged; reading it here silently produced 0.0.0.
+    let version = options.version || "";
+    if (!version) {
+      try {
+        version = JSON.parse(
+          fs.readFileSync(path.join(root, "package.json"), "utf8"),
+        ).version;
+      } catch {}
+    }
+    if (!version) version = "0.0.0";
     this.child = spawn(
       path.join(root, "runtime", "python.exe"),
       ["-u", "-m", "backend.server"],
