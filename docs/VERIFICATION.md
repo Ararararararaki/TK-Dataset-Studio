@@ -41,8 +41,8 @@
 | 开发版及目录包界面 | 各 2/2，2 张各请求一次，2 份 TXT | 真实包内 WD14、模拟 OpenAI SSE 网关；Key 保存与脱敏、纯正文计数、默认复核关闭、正常关闭及端口释放；不将模拟网关当作真实 LLM 质量测试 |
 | 回归 | Python 52/52；Node 1/1；TS/Vite 通过 | SSE reasoning 排除、截断/拒绝/413 不重发、连续失败暂停、凭据优先级、DPAPI、旧 Agent 思考等级不拦 API、原有保存/选择/任务规则 |
 | 并行度 | 4/4 并发契约测试通过；真实 WD14 进程池 CPU 实测 | 三槽池六次调用并行、单槽保持串行；四张图在 wd14=2/llm=2 下两阶段同时在场（peak>1）且总耗时低于串行；真实 `Worker(1)`/`Worker(2)` 跑通 wd-eva02 2026 canary（CPU 单张 6.25s，两进程两张 7.12s 含第二个进程加载） |
-| 端口桥接插件（离线） | `node dsh-bridge/test/harness.mjs` 18/18 | 四条路由注册、SSE 增量拼回正文、图片走 `admitEncodedImages`、请求不带 sessionId、缺 provider/model 400、`purge_status` 真实调用、未知工具 404、token 401/放行、上游失败回 error 帧 |
-| 端口桥接（本机真机，已注入运行中的 DSH 0.2.1-rc.2 / profile web） | 2026-11-01 实测 | `GET /tk-annotate/status` 报 `service=tk-annotate-bridge`、`purge=true`、注册表可见 471 个工具（含 `purge_apply`/`purge_revert`/`purge_status`）；`purge_status` 经 `/tk-annotate/tool` 在宿主里执行成功；`/tk-annotate/run` 对真实图写出 .txt（580 字符，opencode-go/deepseek-v4.1-flash，28.4s）；PIL 造的无害图被 workbuddy / opencode-go 三个模型正确描述，证明图片通路到达模型；`GET /tk-annotate/models?provider=workbuddy` 返回 4 个模型与各自思考等级 |
+| 端口桥接插件（离线） | `node dsh-bridge/test/harness.mjs` 21/21 | 四条路由注册、SSE 增量拼回正文、图片走 `admitEncodedImages`、请求不带 sessionId、缺 provider/model 400、`purge_status` 真实调用、未知工具 404、token 401/放行、上游失败回 error 帧；0.2.2 追加的三项拒绝检查：跨站 `Origin` 403、非 JSON 请求体 415、伪造 `Host` 403 |
+| 端口桥接（本机真机，已注入运行中的 DSH 0.2.1-rc.2 / profile web） | 2026-10-30 实测 | `GET /tk-annotate/status` 报 `service=tk-annotate-bridge`、`purge=true`、注册表可见 471 个工具（含 `purge_apply`/`purge_revert`/`purge_status`）；`purge_status` 经 `/tk-annotate/tool` 在宿主里执行成功；`/tk-annotate/run` 对真实图写出 .txt（580 字符，opencode-go/deepseek-v4.1-flash，28.4s）；PIL 造的无害图被 workbuddy / opencode-go 三个模型正确描述，证明图片通路到达模型；`GET /tk-annotate/models?provider=workbuddy` 返回 4 个模型与各自思考等级 |
 | WD14 并发（CPU 稳态） | 真实 6 张对照 | 池=1 16.38s（2.73s/张）→ 池=3 11.30s（1.88s/张），约 1.45× 提速；每进程 `intra_op_num_threads=4`，CPU 下有争用，拿不到线性加速 |
 | 原生附件体积 | 三个噪声图附件编码合计 <750KB | 防止旧 Relay 请求体过大；API 保持更高图像预算，不更改原图 |
 
